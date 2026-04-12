@@ -1,4 +1,4 @@
-'use client'
+ 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, X, Clock, User, Music, Save, CalendarDays } from 'lucide-react'
