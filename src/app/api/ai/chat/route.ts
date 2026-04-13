@@ -3,20 +3,27 @@ import OpenAI from 'openai'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface StudentSummary {
-  name:         string
-  instrument:   string
-  level?:       string
+interface StudentWithHistory {
+  name:            string
+  instrument:      string
+  level?:          string
   needsAttention?: boolean
+  recentLessons:   Array<{
+    date:             string
+    topic?:           string
+    status:           string
+    performanceTags?: string[]
+    notes?:           string
+  }>
 }
 
 interface LessonSummary {
-  date:      string
-  time:      string
-  duration:  number
-  status:    string
+  date:       string
+  time:       string
+  duration:   number
+  status:     string
   instrument: string
-  topic?:    string
+  topic?:     string
   studentName: string
 }
 
@@ -26,31 +33,39 @@ interface PaymentStatus {
 }
 
 interface ChatRequestBody {
-  message:    string
-  tier:       1 | 2 | 3
+  message: string
   context: {
-    students:        StudentSummary[]
+    students:        StudentWithHistory[]
     upcomingLessons: LessonSummary[]
     todayLessons:    LessonSummary[]
-    recentLessons:   LessonSummary[]
     payments:        PaymentStatus[]
     today:           string
-    studentsWithAttention: string[]
   }
 }
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(ctx: ChatRequestBody['context']): string {
-  const studentList = ctx.students.length > 0
-    ? ctx.students.map((s) =>
-        `  - ${s.name} (${s.instrument}${s.level ? `, ${s.level}` : ''}${s.needsAttention ? ', ⚠️ atenção' : ''})`
-      ).join('\n')
+  // Per-student section with full lesson history
+  const studentDetails = ctx.students.length > 0
+    ? ctx.students.map((s) => {
+        const header = `**${s.name}** (${s.instrument}${s.level ? `, ${s.level}` : ''}${s.needsAttention ? ', ⚠️ precisa de atenção' : ''})`
+        if (s.recentLessons.length === 0) {
+          return `  ${header}\n    Histórico: sem aulas recentes registradas`
+        }
+        const lessonLines = s.recentLessons.map((l) => {
+          const tags  = l.performanceTags?.length ? ` | ${l.performanceTags.join(', ')}` : ''
+          const topic = l.topic ? ` | "${l.topic}"` : ''
+          const notes = l.notes ? ` | obs: ${l.notes}` : ''
+          return `    • ${l.date}${topic} | ${l.status}${tags}${notes}`
+        }).join('\n')
+        return `  ${header}\n${lessonLines}`
+      }).join('\n\n')
     : '  (nenhum aluno cadastrado)'
 
-  const upcomingList = ctx.upcomingLessons.slice(0, 5).length > 0
-    ? ctx.upcomingLessons.slice(0, 5).map((l) =>
-        `  - ${l.date} ${l.time} | ${l.studentName} | ${l.instrument} | ${l.duration}min${l.topic ? ` | tópico: ${l.topic}` : ''}`
+  const upcomingList = ctx.upcomingLessons.slice(0, 6).length > 0
+    ? ctx.upcomingLessons.slice(0, 6).map((l) =>
+        `  - ${l.date} ${l.time} | ${l.studentName} | ${l.instrument} | ${l.duration}min${l.topic ? ` | "${l.topic}"` : ''}`
       ).join('\n')
     : '  (nenhuma aula agendada)'
 
@@ -60,52 +75,48 @@ function buildSystemPrompt(ctx: ChatRequestBody['context']): string {
       ).join('\n')
     : '  (nenhuma aula hoje)'
 
-  const paymentList = ctx.payments.filter((p) => p.status !== 'pago').length > 0
-    ? ctx.payments.filter((p) => p.status !== 'pago').map((p) =>
-        `  - ${p.studentName}: ${p.status}`
-      ).join('\n')
+  const pendingPayments = ctx.payments.filter((p) => p.status !== 'pago')
+  const paymentList = pendingPayments.length > 0
+    ? pendingPayments.map((p) => `  - ${p.studentName}: ${p.status}`).join('\n')
     : '  (nenhum pagamento pendente)'
 
-  return `Você é a **Musly IA**, assistente especializada em ensino musical para professores brasileiros. Você faz parte da plataforma **Musly** — um sistema de gestão de estúdio para professores de música.
+  return `Você é a **Musly IA**, assistente pessoal de ensino musical para professores brasileiros, integrada à plataforma **Musly**.
 
-## Sua personalidade
-- Direto, prático e estruturado
-- Especialista em pedagogia musical
-- Tom profissional mas acessível
-- Respostas organizadas com markdown (listas, negrito, seções)
-- Sempre em português brasileiro
+## Personalidade
+- Conversacional, direto e cálido — você conhece o estúdio do professor pessoalmente
+- Especialista em pedagogia musical (piano, violão, violino, percussão, teoria musical e outros)
+- Responde sempre em português brasileiro
+- Usa markdown apenas quando organiza informações (listas, negrito) — não em respostas curtas
+- Quando o professor perguntar "Como tá o Pedro?" ou qualquer nome de aluno, responda com base no histórico real de aulas daquele aluno
 
-## Seu conhecimento especializado
-- Piano, violão, violino, teoria musical, percussão e outros instrumentos
+## Conhecimento especializado
 - Metodologias: Suzuki, Royal Conservatory, Berklee, Kodály
 - Pedagogia para crianças, jovens e adultos
-- Criação de exercícios por nível (iniciante, intermediário, avançado)
 - Técnica instrumental, leitura musical, improvisação, composição
-- Gestão de estúdio, finanças para professores, organização pedagógica
+- Exercícios e planos de aula por nível (iniciante, intermediário, avançado)
+- Gestão de estúdio, finanças, organização pedagógica
 
-## Dados reais do estúdio (hoje: ${ctx.today})
+## Dados reais do estúdio — hoje é ${ctx.today}
 
-**Alunos cadastrados (${ctx.students.length}):**
-${studentList}
+### Alunos e histórico de aulas (${ctx.students.length} aluno${ctx.students.length !== 1 ? 's' : ''})
+${studentDetails}
 
-**Aulas de hoje:**
+### Aulas de hoje
 ${todayList}
 
-**Próximas aulas:**
+### Próximas aulas agendadas
 ${upcomingList}
 
-**Pagamentos pendentes:**
+### Pagamentos pendentes
 ${paymentList}
 
-${ctx.studentsWithAttention.length > 0 ? `**Alunos que precisam de atenção especial:**\n${ctx.studentsWithAttention.map((n) => `  - ${n}`).join('\n')}` : ''}
-
-## Regras de resposta
-- Use os dados do estúdio sempre que relevante para personalizar a resposta
-- Seja específico: mencione nomes de alunos, instrumentos, horários quando disponíveis
-- Para exercícios e planos de aula: seja detalhado, com estrutura clara e timing
-- Máximo 500 palavras por resposta, a não ser que seja um plano de aula completo
-- Nunca invente dados que não estão no contexto acima
-- Se não souber algo ou os dados não estiverem disponíveis, diga claramente`
+## Como responder
+- Se o professor perguntar sobre um aluno específico pelo nome, consulte o histórico desse aluno acima e dê uma resposta personalizada
+- Use os dados do estúdio para personalizar sempre — nomes, instrumentos, datas, tópicos
+- Para consultas simples (próxima aula, pagamentos, resumo): resposta curta e direta
+- Para exercícios, planos de aula e análises: resposta estruturada com detalhes
+- Nunca invente dados que não estão neste contexto — se faltar algo, diga claramente
+- Máximo 600 palavras, exceto para planos de aula completos`
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -127,34 +138,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Corpo da requisição inválido.' }, { status: 400 })
   }
 
-  const { message, tier, context } = body
+  const { message, context } = body
   if (!message?.trim()) {
     return NextResponse.json({ error: 'Mensagem vazia.' }, { status: 400 })
   }
 
   const openai = new OpenAI({ apiKey })
 
-  // Use gpt-4o-mini for tiers 1-2 (faster, cheaper), gpt-4o for tier 3 (complex plans)
-  const model = tier === 3 ? 'gpt-4o' : 'gpt-4o-mini'
-
   try {
     const completion = await openai.chat.completions.create({
-      model,
+      model:       'gpt-4o-mini',
       messages: [
-        { role: 'system',    content: buildSystemPrompt(context) },
-        { role: 'user',      content: message },
+        { role: 'system', content: buildSystemPrompt(context) },
+        { role: 'user',   content: message },
       ],
-      max_tokens:  tier === 3 ? 1200 : 600,
+      max_tokens:  800,
       temperature: 0.7,
     })
 
     const text = completion.choices[0]?.message?.content ?? 'Não consegui gerar uma resposta. Tente novamente.'
 
-    return NextResponse.json({
-      text,
-      model,
-      usage: completion.usage,
-    })
+    return NextResponse.json({ text })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Erro desconhecido'
 

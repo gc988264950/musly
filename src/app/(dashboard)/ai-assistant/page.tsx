@@ -5,7 +5,7 @@ import {
   Sparkles, Send, Trash2, User, Zap,
   Calendar, Clock, CreditCard, AlertTriangle,
   BookOpen, Music, BarChart2, X,
-  CheckCircle2, RefreshCw,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth }          from '@/contexts/AuthContext'
 import { useSubscription }  from '@/contexts/SubscriptionContext'
@@ -13,7 +13,7 @@ import { getLessons, todayISO } from '@/lib/db/lessons'
 import { getStudents }      from '@/lib/db/students'
 import { getAllPayments }   from '@/lib/db/payments'
 import { getAllFinancial }  from '@/lib/db/financial'
-import { consumeCredits, classifyPrompt, type AICreditSummary, type CreditTier } from '@/lib/db/aiCredits'
+import { consumeCredits, type AICreditSummary } from '@/lib/db/aiCredits'
 import CreditModal          from '@/components/ui/CreditModal'
 import { cn }               from '@/lib/utils'
 import type { Lesson, Student, Payment, StudentFinancial } from '@/lib/db/types'
@@ -39,10 +39,32 @@ interface SystemContext {
  */
 async function callAI(
   message: string,
-  tier: CreditTier,
   ctx: SystemContext
 ): Promise<{ text: string; fromFallback: boolean }> {
-  const today  = ctx.today
+  const today = ctx.today
+
+  // Build per-student context with recent lesson history
+  const students = ctx.students.map((s) => {
+    const recentLessons = ctx.lessons
+      .filter((l) => l.studentId === s.id)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5)
+      .map((l) => ({
+        date:             l.date,
+        topic:            l.topic   || undefined,
+        status:           l.status,
+        performanceTags:  l.performanceTags?.length ? l.performanceTags : undefined,
+        notes:            (l as { notes?: string }).notes || undefined,
+      }))
+    return {
+      name:            s.name,
+      instrument:      s.instrument,
+      level:           s.level ?? undefined,
+      needsAttention:  s.needsAttention ?? false,
+      recentLessons,
+    }
+  })
+
   const upcoming = ctx.lessons
     .filter((l) => l.date >= today && l.status === 'agendada')
     .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
@@ -69,20 +91,6 @@ async function callAI(
       }
     })
 
-  const recentLessons = ctx.lessons
-    .filter((l) => l.status === 'concluída')
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 10)
-    .map((l) => {
-      const s = ctx.students.find((st) => st.id === l.studentId)
-      return {
-        date: l.date, time: l.time, duration: l.duration,
-        status: l.status, instrument: l.instrument,
-        topic: l.topic || undefined,
-        studentName: s?.name ?? 'Aluno desconhecido',
-      }
-    })
-
   const thisMonth = new Date().toISOString().slice(0, 7)
   const paidIds   = ctx.payments
     .filter((p) => p.referenceMonth === thisMonth && p.paidAt !== null)
@@ -96,36 +104,21 @@ async function callAI(
     }
   })
 
-  const apiContext = {
-    students:    ctx.students.map((s) => ({
-      name:           s.name,
-      instrument:     s.instrument,
-      level:          s.level ?? undefined,
-      needsAttention: s.needsAttention ?? false,
-    })),
-    upcomingLessons: upcoming,
-    todayLessons,
-    recentLessons,
-    payments,
-    today,
-    studentsWithAttention: ctx.students.filter((s) => s.needsAttention).map((s) => s.name),
-  }
+  const apiContext = { students, upcomingLessons: upcoming, todayLessons, payments, today }
 
   try {
     const res = await fetch('/api/ai/chat', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message, tier, context: apiContext }),
+      body:    JSON.stringify({ message, context: apiContext }),
     })
 
     const data = await res.json()
 
     if (!res.ok) {
-      // If key not configured → fall back silently to local engine
       if (res.status === 500 && data.error?.includes('OPENAI_API_KEY')) {
         return { text: generateAIResponse(message, ctx), fromFallback: true }
       }
-      // Other errors → show message to user
       return {
         text: `⚠️ ${data.error ?? 'Erro ao se comunicar com a IA. Tente novamente.'}`,
         fromFallback: false,
@@ -134,7 +127,6 @@ async function callAI(
 
     return { text: data.text, fromFallback: false }
   } catch {
-    // Network error → fall back to local engine
     return { text: generateAIResponse(message, ctx), fromFallback: true }
   }
 }
@@ -142,67 +134,58 @@ async function callAI(
 // ─── Quick actions ────────────────────────────────────────────────────────────
 
 interface QuickAction {
-  label:   string
-  prompt:  string
-  cost:    CreditTier
-  icon:    React.ReactNode
-  color:   string
+  label:  string
+  prompt: string
+  icon:   React.ReactNode
+  color:  string
 }
 
 const QUICK_ACTIONS: QuickAction[] = [
   {
     label:  'Próxima aula',
     prompt: 'Qual é minha próxima aula?',
-    cost:   1,
     icon:   <Calendar className="h-3.5 w-3.5" />,
     color:  'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100',
   },
   {
     label:  'Aulas hoje',
     prompt: 'Quantas aulas tenho hoje?',
-    cost:   1,
     icon:   <Clock className="h-3.5 w-3.5" />,
     color:  'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100',
   },
   {
     label:  'Pagamentos',
     prompt: 'Quais pagamentos estão pendentes este mês?',
-    cost:   1,
     icon:   <CreditCard className="h-3.5 w-3.5" />,
     color:  'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100',
   },
   {
     label:  'Com dificuldade',
     prompt: 'Qual aluno está com mais dificuldade ou precisa de atenção?',
-    cost:   1,
     icon:   <AlertTriangle className="h-3.5 w-3.5" />,
     color:  'bg-red-50 text-red-700 border-red-100 hover:bg-red-100',
   },
   {
     label:  'Gerar exercício',
     prompt: 'Gere exercícios práticos e estruturados para meus alunos',
-    cost:   2,
     icon:   <Music className="h-3.5 w-3.5" />,
     color:  'bg-purple-50 text-purple-700 border-purple-100 hover:bg-purple-100',
   },
   {
-    label:  'Analisar aluno',
+    label:  'Analisar alunos',
     prompt: 'Analise o desempenho geral dos meus alunos e me dê recomendações',
-    cost:   2,
     icon:   <BarChart2 className="h-3.5 w-3.5" />,
     color:  'bg-teal-50 text-teal-700 border-teal-100 hover:bg-teal-100',
   },
   {
     label:  'O que ensinar',
     prompt: 'O que devo trabalhar na próxima aula com meus alunos? Dê sugestões práticas',
-    cost:   2,
     icon:   <BookOpen className="h-3.5 w-3.5" />,
     color:  'bg-green-50 text-green-700 border-green-100 hover:bg-green-100',
   },
   {
-    label:  'Criar aula',
+    label:  'Criar plano',
     prompt: 'Crie um plano de aula completo e detalhado para eu usar hoje',
-    cost:   3,
     icon:   <Sparkles className="h-3.5 w-3.5" />,
     color:  'bg-[#eef5ff] text-[#1a7cfa] border-blue-100 hover:bg-blue-100',
   },
@@ -408,7 +391,6 @@ interface Message {
   role:          'user' | 'assistant'
   text:          string
   ts:            number
-  credits?:      CreditTier
   isError?:      boolean
   fromFallback?: boolean
 }
@@ -417,7 +399,8 @@ interface Message {
 
 function creditColor(summary: AICreditSummary | null): string {
   if (!summary) return 'text-gray-400'
-  const pct = summary.remaining / summary.total
+  const max = (summary.total + summary.extra) || summary.total
+  const pct = summary.totalAvailable / (max || 1)
   if (pct > 0.5) return 'text-green-600'
   if (pct > 0.2) return 'text-amber-600'
   return 'text-red-500'
@@ -460,15 +443,12 @@ export default function AIAssistantPage() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Estimated cost of current input ───────────────────────────────────────
-  const estimatedCost: CreditTier | null = input.trim() ? classifyPrompt(input.trim()) : null
-
-  // ── Send a message ─────────────────────────────────────────────────────────
-  const send = useCallback(async (text: string, costOverride?: CreditTier) => {
+  // ── Send a message (always costs 1 credit) ────────────────────────────────
+  const send = useCallback(async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed || loading || !ctx) return
 
-    const cost = costOverride ?? classifyPrompt(trimmed)
+    const cost = 1
 
     // Check credits
     if (credits && credits.totalAvailable < cost) {
@@ -477,7 +457,7 @@ export default function AIAssistantPage() {
         { role: 'user', text: trimmed, ts: Date.now() },
         {
           role: 'assistant',
-          text: `Você não tem créditos suficientes para esta ação.\n\nCusto: **${cost} crédito${cost > 1 ? 's' : ''}** | Disponível: **${credits.totalAvailable} crédito${credits.totalAvailable !== 1 ? 's' : ''}**\n\nCompre créditos avulsos ou faça upgrade do seu plano.`,
+          text: `Você não tem créditos disponíveis.\n\nCompre créditos avulsos ou faça upgrade do seu plano para continuar usando a IA.`,
           ts: Date.now(),
           isError: true,
         },
@@ -490,7 +470,7 @@ export default function AIAssistantPage() {
     setLoading(true)
 
     // Call OpenAI (falls back to local engine if key not configured)
-    const { text: response, fromFallback } = await callAI(trimmed, cost, ctx)
+    const { text: response, fromFallback } = await callAI(trimmed, ctx)
 
     // Only deduct credits when response is not an error message
     const isError = response.startsWith('⚠️')
@@ -513,14 +493,7 @@ export default function AIAssistantPage() {
 
     setMessages((prev) => [
       ...prev,
-      {
-        role:     'assistant',
-        text:     response,
-        ts:       Date.now(),
-        credits:  isError ? undefined : cost,
-        isError,
-        fromFallback,
-      },
+      { role: 'assistant', text: response, ts: Date.now(), isError, fromFallback },
     ])
     setLoading(false)
   }, [loading, ctx, credits, user]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -530,7 +503,9 @@ export default function AIAssistantPage() {
   }
 
   // ── Credit status ──────────────────────────────────────────────────────────
-  const creditPct = credits ? credits.totalAvailable / (credits.total + credits.extra) : 1
+  // Use totalAvailable vs (total + extra) so the bar reflects all credits
+  const creditMax = credits ? (credits.total + credits.extra) || credits.total : 1
+  const creditPct = credits ? credits.totalAvailable / creditMax : 1
   const creditTextColor = creditColor(credits)
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -562,9 +537,10 @@ export default function AIAssistantPage() {
               <div className="text-left">
                 <p className={cn('text-sm font-bold leading-tight', creditTextColor)}>
                   {credits.totalAvailable}
-                  <span className="text-xs font-normal text-gray-400"> / {credits.total}</span>
                 </p>
-                <p className="text-[10px] text-gray-400 leading-tight">créditos</p>
+                <p className="text-[10px] text-gray-400 leading-tight">
+                  crédito{credits.totalAvailable !== 1 ? 's' : ''} disponíve{credits.totalAvailable !== 1 ? 'is' : 'l'}
+                </p>
               </div>
               {/* Mini progress bar */}
               <div className="h-1.5 w-14 overflow-hidden rounded-full bg-gray-100">
@@ -605,13 +581,13 @@ export default function AIAssistantPage() {
       {/* ── Quick actions ── */}
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
         {QUICK_ACTIONS.map((action) => {
-          const disabled = loading || !ctx || (credits !== null && credits.totalAvailable < action.cost)
+          const disabled = loading || !ctx || (credits !== null && credits.totalAvailable < 1)
           return (
             <button
               key={action.label}
-              onClick={() => send(action.prompt, action.cost)}
+              onClick={() => send(action.prompt)}
               disabled={disabled}
-              title={`${action.label} — ${action.cost} crédito${action.cost > 1 ? 's' : ''}`}
+              title={action.label}
               className={cn(
                 'flex flex-shrink-0 items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-all',
                 action.color,
@@ -620,10 +596,6 @@ export default function AIAssistantPage() {
             >
               {action.icon}
               {action.label}
-              <span className="ml-0.5 flex items-center gap-0.5 rounded-full bg-black/5 px-1.5 py-0.5 text-[9px] font-bold">
-                <Zap className="h-2 w-2" />
-                {action.cost}
-              </span>
             </button>
           )
         })}
@@ -711,13 +683,11 @@ export default function AIAssistantPage() {
                     >
                       {renderMarkdown(msg.text)}
                     </div>
-                    {/* Credit cost badge for AI messages */}
-                    {msg.role === 'assistant' && msg.credits && (
+                    {/* 1-credit indicator for AI messages */}
+                    {msg.role === 'assistant' && !msg.isError && (
                       <div className="flex items-center gap-1 pl-1">
                         <Zap className="h-2.5 w-2.5 text-gray-300" />
-                        <span className="text-[10px] text-gray-300">
-                          {msg.credits} crédito{msg.credits > 1 ? 's' : ''}
-                        </span>
+                        <span className="text-[10px] text-gray-300">1 crédito</span>
                       </div>
                     )}
                   </div>
@@ -755,17 +725,11 @@ export default function AIAssistantPage() {
 
         {/* Input area */}
         <div className="p-3 sm:p-4">
-          {/* Cost estimate */}
-          {estimatedCost && (
+          {/* Cost indicator */}
+          {input.trim() && (
             <div className="mb-2 flex items-center gap-1.5 text-[11px] text-gray-400">
               <Zap className="h-3 w-3" />
-              <span>
-                Custo estimado:{' '}
-                <span className="font-semibold text-gray-600">
-                  {estimatedCost} crédito{estimatedCost > 1 ? 's' : ''}
-                </span>
-                {' '}— {estimatedCost === 1 ? 'Consulta simples' : estimatedCost === 2 ? 'Geração inteligente' : 'Planejamento avançado'}
-              </span>
+              <span>1 crédito por mensagem</span>
             </div>
           )}
 
@@ -789,10 +753,10 @@ export default function AIAssistantPage() {
           </div>
 
           {/* Out of credits warning */}
-          {credits && credits.remaining === 0 && (
+          {credits && credits.totalAvailable === 0 && (
             <div className="mt-2 flex items-center justify-between rounded-xl border border-red-100 bg-red-50 px-3 py-2">
               <p className="text-xs text-red-700">
-                Sem créditos disponíveis este mês.
+                Sem créditos disponíveis.
               </p>
               <button
                 onClick={() => setShowCreditModal(true)}
