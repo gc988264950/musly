@@ -20,14 +20,15 @@
  */
 
 import { useState, useEffect, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams }  from 'next/navigation'
 import { Check, Crown, Zap, Star, ExternalLink, X, Loader2, AlertCircle } from 'lucide-react'
-import { useSubscription } from '@/contexts/SubscriptionContext'
-import { useAuth } from '@/contexts/AuthContext'
-import { PLANS } from '@/lib/plans'
-import { Button } from '@/components/ui/Button'
-import { cn } from '@/lib/utils'
-import type { PlanId } from '@/lib/db/types'
+import { useSubscription }  from '@/contexts/SubscriptionContext'
+import { useAuth }          from '@/contexts/AuthContext'
+import CreditModal          from '@/components/ui/CreditModal'
+import { PLANS, CREDIT_PACKS } from '@/lib/plans'
+import { Button }           from '@/components/ui/Button'
+import { cn }               from '@/lib/utils'
+import type { PlanId }      from '@/lib/db/types'
 
 // ─── Cakto checkout link config ───────────────────────────────────────────────
 // These come from env vars — set in .env.local (see .env.local.example)
@@ -98,11 +99,12 @@ export default function PlansPage() {
 }
 
 function PlansContent() {
-  const { user }                                          = useAuth()
-  const { planId, changePlan, studentsCount, aiPlansThisMonth, refresh } = useSubscription()
-  const searchParams                                      = useSearchParams()
-  const [successPlan,  setSuccessPlan]  = useState<string | null>(null)
-  const [checking,     setChecking]     = useState(false)
+  const { user }                                              = useAuth()
+  const { planId, changePlan, studentsCount, aiCredits, refresh } = useSubscription()
+  const searchParams                                               = useSearchParams()
+  const [successPlan,    setSuccessPlan]    = useState<string | null>(null)
+  const [checking,       setChecking]       = useState(false)
+  const [showCreditModal, setShowCreditModal] = useState(false)
 
   // ── Handle return from Cakto checkout ──────────────────────────────────────
   // Cakto redirects to /plans?plan=pro&cakto=success after successful payment.
@@ -195,48 +197,74 @@ function PlansContent() {
         <SuccessBanner planName={successPlan} onClose={() => setSuccessPlan(null)} />
       )}
 
-      {/* Current usage bar (free plan only) */}
-      {planId === 'free' && (
-        <div className="mb-8 rounded-2xl border border-gray-200 bg-gray-50 p-5">
-          <p className="mb-3 text-sm font-medium text-gray-700">Uso atual — Plano Grátis</p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <div className="mb-1.5 flex justify-between text-xs text-gray-500">
-                <span>Alunos</span>
-                <span className="font-medium text-gray-700">
-                  {studentsCount} / {PLANS.free.limits.students}
-                </span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-gray-200">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all',
-                    studentsCount >= (PLANS.free.limits.students ?? 0) ? 'bg-red-500' : 'bg-blue-500'
-                  )}
-                  style={{ width: `${Math.min(100, (studentsCount / (PLANS.free.limits.students ?? 1)) * 100)}%` }}
-                />
-              </div>
+      {/* Current usage bar */}
+      <div className="mb-8 rounded-2xl border border-gray-200 bg-gray-50 p-5">
+        <p className="mb-3 text-sm font-medium text-gray-700">
+          Uso atual — Plano {PLANS[planId].name}
+        </p>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {/* Students */}
+          <div>
+            <div className="mb-1.5 flex justify-between text-xs text-gray-500">
+              <span>Alunos</span>
+              <span className="font-medium text-gray-700">
+                {PLANS[planId].limits.students !== null
+                  ? `${studentsCount} / ${PLANS[planId].limits.students}`
+                  : `${studentsCount} (ilimitado)`}
+              </span>
             </div>
-            <div>
-              <div className="mb-1.5 flex justify-between text-xs text-gray-500">
-                <span>Planos IA este mês</span>
-                <span className="font-medium text-gray-700">
-                  {aiPlansThisMonth} / {PLANS.free.limits.aiPlansPerMonth}
-                </span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-gray-200">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all',
-                    aiPlansThisMonth >= (PLANS.free.limits.aiPlansPerMonth ?? 0) ? 'bg-red-500' : 'bg-[#1a7cfa]'
-                  )}
-                  style={{ width: `${Math.min(100, (aiPlansThisMonth / (PLANS.free.limits.aiPlansPerMonth ?? 1)) * 100)}%` }}
-                />
-              </div>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all',
+                  PLANS[planId].limits.students !== null && studentsCount >= (PLANS[planId].limits.students ?? 0)
+                    ? 'bg-red-500' : 'bg-blue-500'
+                )}
+                style={{
+                  width: PLANS[planId].limits.students !== null
+                    ? `${Math.min(100, (studentsCount / (PLANS[planId].limits.students ?? 1)) * 100)}%`
+                    : '30%'
+                }}
+              />
             </div>
           </div>
+
+          {/* AI credits — monthly */}
+          <div>
+            <div className="mb-1.5 flex justify-between text-xs text-gray-500">
+              <span>Créditos IA usados</span>
+              <span className="font-medium text-gray-700">
+                {aiCredits?.used ?? 0} / {aiCredits?.total ?? PLANS[planId].limits.aiCreditsPerMonth}
+              </span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-200">
+              <div
+                className={cn(
+                  'h-full rounded-full transition-all',
+                  (aiCredits?.used ?? 0) >= (aiCredits?.total ?? 1) ? 'bg-red-500' : 'bg-[#1a7cfa]'
+                )}
+                style={{
+                  width: `${Math.min(100, ((aiCredits?.used ?? 0) / (aiCredits?.total ?? PLANS[planId].limits.aiCreditsPerMonth)) * 100)}%`
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Extra credits */}
+          <div className="flex flex-col justify-center">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500">Créditos extras</span>
+              <span className="text-xs font-medium text-purple-700">{aiCredits?.extra ?? 0}</span>
+            </div>
+            <button
+              onClick={() => setShowCreditModal(true)}
+              className="mt-1.5 w-full rounded-lg border border-purple-200 bg-purple-50 py-1 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100"
+            >
+              + Comprar créditos
+            </button>
+          </div>
         </div>
-      )}
+      </div>
 
       {/* Plan cards */}
       <div className="grid gap-6 lg:grid-cols-3">
@@ -364,6 +392,12 @@ function PlansContent() {
         <p>Pagamentos processados com segurança pela <strong>Cakto</strong>.</p>
         <p>Após o pagamento, seu plano é ativado automaticamente em instantes.</p>
       </div>
+
+      <CreditModal
+        open={showCreditModal}
+        onClose={() => setShowCreditModal(false)}
+        credits={aiCredits}
+      />
     </div>
   )
 }

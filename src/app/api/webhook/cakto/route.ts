@@ -29,6 +29,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   computeExpiry,
   CAKTO_OFFER_TO_PLAN,
+  CAKTO_OFFER_TO_CREDITS,
   CAKTO_CONFIG,
   type CaktoWebhookPayload,
 } from '@/lib/billing/cakto'
@@ -135,37 +136,137 @@ function validateRequest(
   return { valid: false, reason: 'secret not found in body.secret or any known header', matchedSource: null, allHeaders }
 }
 
-// ─── Approved-event handler ───────────────────────────────────────────────────
+// ─── Shared: resolve userId from payload ─────────────────────────────────────
 
-async function handleApproved(payload: CaktoWebhookPayload): Promise<NextResponse> {
-  const { id, customer, offer, external_reference, approved_at, created_at } = payload.data
+async function resolveUserId(
+  admin: ReturnType<typeof adminClient>,
+  email: string,
+  externalReference: string | undefined,
+): Promise<string | null> {
+  // Prefer explicit userId passed in checkout URL ?ref=<userId>
+  if (externalReference) return externalReference
+
+  // Fall back to email lookup
+  const { data } = await admin.auth.admin.listUsers({ perPage: 1000 })
+  return data?.users?.find((u) => u.email?.toLowerCase() === email)?.id ?? null
+}
+
+// ─── Credit purchase handler (NEW) ───────────────────────────────────────────
+
+async function handleCreditPurchase(
+  payload: CaktoWebhookPayload,
+  creditAmount: number,
+): Promise<NextResponse> {
+  const { id, customer, external_reference, approved_at, created_at } = payload.data
 
   const email = customer?.email?.toLowerCase().trim()
   if (!email) {
-    console.warn('[Cakto webhook] Approved event missing customer email — skipping.')
+    console.warn('[Cakto webhook] Credit purchase missing customer email — skipping.')
     return NextResponse.json({ ok: true, skipped: 'no_email' })
   }
 
-  const offerId = offer?.id ?? ''
-  const planId  = CAKTO_OFFER_TO_PLAN[offerId]
+  const admin    = adminClient()
+  const orderId  = id
+  const now      = approved_at ?? created_at ?? new Date().toISOString()
+  const month    = now.slice(0, 7) // "YYYY-MM"
 
-  if (!planId) {
-    console.warn(`[Cakto webhook] Unknown offer ID "${offerId}"`)
-    return NextResponse.json({ ok: true, skipped: 'unknown_offer', offerId })
+  // ── 1. Idempotency: reject if this order was already processed ───────────────
+  const { data: existing } = await admin
+    .from('credit_transactions')
+    .select('id')
+    .eq('cakto_order_id', orderId)
+    .maybeSingle()
+
+  if (existing) {
+    console.info(`[Cakto webhook] ⚠️  Order "${orderId}" already processed — skipping duplicate.`)
+    return NextResponse.json({ ok: true, skipped: 'duplicate_order', orderId })
+  }
+
+  // ── 2. Resolve user ──────────────────────────────────────────────────────────
+  const userId = await resolveUserId(admin, email, external_reference)
+
+  if (!userId) {
+    console.warn(`[Cakto webhook] No user found for ${email} — cannot add credits.`)
+    return NextResponse.json({ ok: true, skipped: 'user_not_found', email })
+  }
+
+  // ── 3. Add extra credits (never overwrite — always sum) ──────────────────────
+  const { data: usage } = await admin
+    .from('ai_credit_usage')
+    .select('extra_credits')
+    .eq('user_id', userId)
+    .eq('month', month)
+    .maybeSingle()
+
+  const currentExtra = usage?.extra_credits ?? 0
+
+  if (usage) {
+    await admin
+      .from('ai_credit_usage')
+      .update({
+        extra_credits: currentExtra + creditAmount,
+        updated_at:    new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('month', month)
+  } else {
+    await admin
+      .from('ai_credit_usage')
+      .insert({
+        user_id:       userId,
+        month,
+        credits_used:  0,
+        extra_credits: creditAmount,
+      })
+  }
+
+  // ── 4. Log transaction with order ID (guarantees idempotency on retry) ───────
+  const { error: txError } = await admin
+    .from('credit_transactions')
+    .insert({
+      user_id:        userId,
+      type:           'purchase',
+      amount:         creditAmount,
+      description:    `Compra de ${creditAmount} créditos via Cakto`,
+      cakto_order_id: orderId,
+      created_at:     now,
+    })
+
+  if (txError) {
+    // Unique constraint violation = duplicate webhook (race condition)
+    if (txError.code === '23505') {
+      console.info(`[Cakto webhook] ⚠️  Race-condition duplicate for order "${orderId}" — ignored.`)
+      return NextResponse.json({ ok: true, skipped: 'duplicate_race', orderId })
+    }
+    console.error('[Cakto webhook] Credit transaction write error:', txError.message)
+    return NextResponse.json({ error: txError.message }, { status: 500 })
+  }
+
+  console.info(
+    `[Cakto webhook] ✅ +${creditAmount} credits added for ${email} (order ${orderId})`
+  )
+  return NextResponse.json({ ok: true, credits: creditAmount, email, orderId })
+}
+
+// ─── Plan purchase handler (unchanged logic, refactored) ─────────────────────
+
+async function handlePlanPurchase(
+  payload: CaktoWebhookPayload,
+  planId: Extract<import('@/lib/db/types').PlanId, 'pro' | 'studio'>,
+): Promise<NextResponse> {
+  const { id, customer, offer: _offer, external_reference, approved_at, created_at } = payload.data
+
+  const email = customer?.email?.toLowerCase().trim()
+  if (!email) {
+    console.warn('[Cakto webhook] Plan purchase missing customer email — skipping.')
+    return NextResponse.json({ ok: true, skipped: 'no_email' })
   }
 
   const activatedAt = approved_at ?? created_at ?? new Date().toISOString()
   const expiresAt   = computeExpiry(planId, new Date(activatedAt))
   const admin       = adminClient()
 
-  // Try to find the Supabase user by external_reference (userId) or email
-  let userId = external_reference ?? null
-
-  if (!userId) {
-    const { data } = await admin.auth.admin.listUsers({ perPage: 1000 })
-    const match = data?.users?.find((u) => u.email?.toLowerCase() === email)
-    userId = match?.id ?? null
-  }
+  const userId = await resolveUserId(admin, email, external_reference)
 
   if (!userId) {
     console.warn(`[Cakto webhook] No Supabase user found for ${email} — cannot write subscription.`)
@@ -191,6 +292,30 @@ async function handleApproved(payload: CaktoWebhookPayload): Promise<NextRespons
 
   console.info(`[Cakto webhook] ✅ Plan "${planId}" written to DB for ${email} (order ${id})`)
   return NextResponse.json({ ok: true, planId, email })
+}
+
+// ─── Approved-event dispatcher ────────────────────────────────────────────────
+
+async function handleApproved(payload: CaktoWebhookPayload): Promise<NextResponse> {
+  const offerId = payload.data.offer?.id ?? ''
+
+  // ── Credit purchase? ──────────────────────────────────────────────────────
+  const creditAmount = CAKTO_OFFER_TO_CREDITS[offerId]
+  if (creditAmount !== undefined) {
+    console.info(`[Cakto webhook] Detected credit purchase: +${creditAmount} credits (offer "${offerId}")`)
+    return handleCreditPurchase(payload, creditAmount)
+  }
+
+  // ── Plan purchase? ────────────────────────────────────────────────────────
+  const planId = CAKTO_OFFER_TO_PLAN[offerId]
+  if (planId) {
+    console.info(`[Cakto webhook] Detected plan purchase: "${planId}" (offer "${offerId}")`)
+    return handlePlanPurchase(payload, planId)
+  }
+
+  // ── Unknown offer ─────────────────────────────────────────────────────────
+  console.warn(`[Cakto webhook] Unknown offer ID "${offerId}" — not a plan or credit pack.`)
+  return NextResponse.json({ ok: true, skipped: 'unknown_offer', offerId })
 }
 
 // ─── Refund/chargeback handler ────────────────────────────────────────────────

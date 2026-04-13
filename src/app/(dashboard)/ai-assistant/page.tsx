@@ -2,23 +2,20 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  Sparkles, Send, Trash2, User, Zap, ShoppingCart,
+  Sparkles, Send, Trash2, User, Zap,
   Calendar, Clock, CreditCard, AlertTriangle,
-  BookOpen, Music, BarChart2, ChevronRight, X,
+  BookOpen, Music, BarChart2, X,
   CheckCircle2, RefreshCw,
 } from 'lucide-react'
-import Link from 'next/link'
-import { useAuth } from '@/contexts/AuthContext'
-import { useSubscription } from '@/contexts/SubscriptionContext'
+import { useAuth }          from '@/contexts/AuthContext'
+import { useSubscription }  from '@/contexts/SubscriptionContext'
 import { getLessons, todayISO } from '@/lib/db/lessons'
-import { getStudents } from '@/lib/db/students'
-import { getAllPayments } from '@/lib/db/payments'
-import { getAllFinancial } from '@/lib/db/financial'
-import {
-  getCreditSummary, consumeCredits, classifyPrompt, PLAN_CREDITS,
-  type AICreditSummary, type CreditTier,
-} from '@/lib/db/aiCredits'
-import { cn } from '@/lib/utils'
+import { getStudents }      from '@/lib/db/students'
+import { getAllPayments }   from '@/lib/db/payments'
+import { getAllFinancial }  from '@/lib/db/financial'
+import { consumeCredits, classifyPrompt, type AICreditSummary, type CreditTier } from '@/lib/db/aiCredits'
+import CreditModal          from '@/components/ui/CreditModal'
+import { cn }               from '@/lib/utils'
 import type { Lesson, Student, Payment, StudentFinancial } from '@/lib/db/types'
 
 // ─── System context ───────────────────────────────────────────────────────────
@@ -30,6 +27,116 @@ interface SystemContext {
   financials: StudentFinancial[]
   teacherId:  string
   today:      string
+}
+
+// ─── API caller ───────────────────────────────────────────────────────────────
+
+/**
+ * Calls the server-side OpenAI route.
+ * Falls back to the local rule-based engine if:
+ *  - OPENAI_API_KEY is not configured (500 with specific message)
+ *  - Any network / API error occurs
+ */
+async function callAI(
+  message: string,
+  tier: CreditTier,
+  ctx: SystemContext
+): Promise<{ text: string; fromFallback: boolean }> {
+  const today  = ctx.today
+  const upcoming = ctx.lessons
+    .filter((l) => l.date >= today && l.status === 'agendada')
+    .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+    .slice(0, 8)
+    .map((l) => {
+      const s = ctx.students.find((st) => st.id === l.studentId)
+      return {
+        date: l.date, time: l.time, duration: l.duration,
+        status: l.status, instrument: l.instrument,
+        topic: l.topic || undefined,
+        studentName: s?.name ?? 'Aluno desconhecido',
+      }
+    })
+
+  const todayLessons = ctx.lessons
+    .filter((l) => l.date === today)
+    .map((l) => {
+      const s = ctx.students.find((st) => st.id === l.studentId)
+      return {
+        date: l.date, time: l.time, duration: l.duration,
+        status: l.status, instrument: l.instrument,
+        topic: l.topic || undefined,
+        studentName: s?.name ?? 'Aluno desconhecido',
+      }
+    })
+
+  const recentLessons = ctx.lessons
+    .filter((l) => l.status === 'concluída')
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 10)
+    .map((l) => {
+      const s = ctx.students.find((st) => st.id === l.studentId)
+      return {
+        date: l.date, time: l.time, duration: l.duration,
+        status: l.status, instrument: l.instrument,
+        topic: l.topic || undefined,
+        studentName: s?.name ?? 'Aluno desconhecido',
+      }
+    })
+
+  const thisMonth = new Date().toISOString().slice(0, 7)
+  const paidIds   = ctx.payments
+    .filter((p) => p.referenceMonth === thisMonth && p.paidAt !== null)
+    .map((p) => p.studentId)
+
+  const payments = ctx.financials.map((f) => {
+    const s = ctx.students.find((st) => st.id === f.studentId)
+    return {
+      studentName: s?.name ?? '?',
+      status: paidIds.includes(f.studentId) ? 'pago' as const : 'pendente' as const,
+    }
+  })
+
+  const apiContext = {
+    students:    ctx.students.map((s) => ({
+      name:           s.name,
+      instrument:     s.instrument,
+      level:          s.level ?? undefined,
+      needsAttention: s.needsAttention ?? false,
+    })),
+    upcomingLessons: upcoming,
+    todayLessons,
+    recentLessons,
+    payments,
+    today,
+    studentsWithAttention: ctx.students.filter((s) => s.needsAttention).map((s) => s.name),
+  }
+
+  try {
+    const res = await fetch('/api/ai/chat', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ message, tier, context: apiContext }),
+    })
+
+    const data = await res.json()
+
+    if (!res.ok) {
+      // If key not configured → fall back silently to local engine
+      if (res.status === 500 && data.error?.includes('OPENAI_API_KEY')) {
+        return { text: generateAIResponse(message, ctx), fromFallback: true }
+      }
+      // Other errors → show message to user
+      return {
+        text: `⚠️ ${data.error ?? 'Erro ao se comunicar com a IA. Tente novamente.'}`,
+        fromFallback: false,
+      }
+    }
+
+    return { text: data.text, fromFallback: false }
+  } catch {
+    // Network error → fall back to local engine
+    return { text: generateAIResponse(message, ctx), fromFallback: true }
+  }
 }
 
 // ─── Quick actions ────────────────────────────────────────────────────────────
@@ -99,14 +206,6 @@ const QUICK_ACTIONS: QuickAction[] = [
     icon:   <Sparkles className="h-3.5 w-3.5" />,
     color:  'bg-[#eef5ff] text-[#1a7cfa] border-blue-100 hover:bg-blue-100',
   },
-]
-
-// ─── Credit packs ─────────────────────────────────────────────────────────────
-
-const CREDIT_PACKS = [
-  { credits: 100, price: 'R$ 19,90', pricePerUnit: 'R$ 0,20/crédito' },
-  { credits: 300, price: 'R$ 49,90', pricePerUnit: 'R$ 0,17/crédito', popular: true },
-  { credits: 500, price: 'R$ 79,90', pricePerUnit: 'R$ 0,16/crédito' },
 ]
 
 // ─── AI response engine ───────────────────────────────────────────────────────
@@ -306,11 +405,12 @@ function renderMarkdown(text: string): React.ReactNode {
 // ─── Message type ─────────────────────────────────────────────────────────────
 
 interface Message {
-  role:     'user' | 'assistant'
-  text:     string
-  ts:       number
-  credits?: CreditTier
-  isError?: boolean
+  role:          'user' | 'assistant'
+  text:          string
+  ts:            number
+  credits?:      CreditTier
+  isError?:      boolean
+  fromFallback?: boolean
 }
 
 // ─── Credit badge color ───────────────────────────────────────────────────────
@@ -323,98 +423,23 @@ function creditColor(summary: AICreditSummary | null): string {
   return 'text-red-500'
 }
 
-// ─── Buy credits modal ────────────────────────────────────────────────────────
-
-function BuyCreditsModal({ onClose, planId }: { onClose: () => void; planId: string }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md flex flex-col rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl max-h-[92dvh] overflow-y-auto">
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">Créditos de IA</h2>
-            <p className="text-xs text-gray-400">Amplie sua capacidade mensal</p>
-          </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="px-6 py-5 space-y-4">
-          {/* Plan upgrade prompt */}
-          <div className="rounded-xl border border-blue-100 bg-[#eef5ff] p-4">
-            <p className="text-sm font-semibold text-[#1a7cfa]">Créditos mensais por plano</p>
-            <div className="mt-3 space-y-1.5">
-              {(Object.entries(PLAN_CREDITS) as [string, number][]).map(([plan, credits]) => (
-                <div key={plan} className="flex items-center justify-between text-sm">
-                  <span className="font-medium capitalize text-gray-700">{plan === 'free' ? 'Grátis' : plan === 'pro' ? 'Pro' : 'Studio'}</span>
-                  <span className={cn('font-bold', plan === planId ? 'text-[#1a7cfa]' : 'text-gray-500')}>
-                    {credits} créditos/mês{plan === planId ? ' ← atual' : ''}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <Link href="/plans">
-              <button onClick={onClose} className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#1a7cfa] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1468d6] transition-colors">
-                Fazer upgrade de plano <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </Link>
-          </div>
-
-          {/* Credit packs */}
-          <div>
-            <p className="mb-3 text-sm font-medium text-gray-700">Ou compre créditos avulsos:</p>
-            <div className="space-y-2">
-              {CREDIT_PACKS.map((pack) => (
-                <div
-                  key={pack.credits}
-                  className={cn(
-                    'relative flex items-center justify-between rounded-xl border p-4 transition-colors',
-                    pack.popular ? 'border-[#1a7cfa] bg-[#eef5ff]' : 'border-gray-200 bg-white'
-                  )}
-                >
-                  {pack.popular && (
-                    <span className="absolute -top-2.5 left-4 rounded-full bg-[#1a7cfa] px-2.5 py-0.5 text-[10px] font-bold text-white">
-                      MAIS POPULAR
-                    </span>
-                  )}
-                  <div>
-                    <p className="font-semibold text-gray-900">{pack.credits} créditos</p>
-                    <p className="text-xs text-gray-400">{pack.pricePerUnit}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold text-gray-900">{pack.price}</p>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
-                      Em breve
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <p className="text-center text-xs text-gray-400">
-            Integração de pagamento disponível em breve.
-          </p>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AIAssistantPage() {
   const { user } = useAuth()
-  const { planId } = useSubscription()
+  const { planId, aiCredits } = useSubscription()
 
   const [messages,        setMessages]        = useState<Message[]>([])
   const [input,           setInput]           = useState('')
   const [loading,         setLoading]         = useState(false)
   const [ctx,             setCtx]             = useState<SystemContext | null>(null)
-  const [credits,         setCredits]         = useState<AICreditSummary | null>(null)
   const [showCreditModal, setShowCreditModal] = useState(false)
+  // Local optimistic credits — mirrors context but can be updated immediately
+  const [credits,         setCredits]         = useState<AICreditSummary | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+
+  // Sync credits from context whenever context updates
+  useEffect(() => { setCredits(aiCredits) }, [aiCredits])
 
   // ── Load system data ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -425,12 +450,11 @@ export default function AIAssistantPage() {
       getStudents(id).catch(() => [] as Student[]),
       getAllPayments(id).catch(() => [] as Payment[]),
       getAllFinancial(id).catch(() => [] as StudentFinancial[]),
-      getCreditSummary(id, planId).catch(() => null),
-    ]).then(([lessons, students, payments, financials, creditSummary]) => {
+    ]).then(([lessons, students, payments, financials]) => {
       setCtx({ lessons, students, payments, financials, teacherId: id, today: todayISO() })
-      setCredits(creditSummary)
     })
-  }, [user?.id, planId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -447,13 +471,13 @@ export default function AIAssistantPage() {
     const cost = costOverride ?? classifyPrompt(trimmed)
 
     // Check credits
-    if (credits && credits.remaining < cost) {
+    if (credits && credits.totalAvailable < cost) {
       setMessages((prev) => [
         ...prev,
         { role: 'user', text: trimmed, ts: Date.now() },
         {
           role: 'assistant',
-          text: `Você não tem créditos suficientes para esta ação.\n\nCusto: **${cost} crédito${cost > 1 ? 's' : ''}** | Disponível: **${credits.remaining} crédito${credits.remaining !== 1 ? 's' : ''}**\n\nFaça upgrade do seu plano ou aguarde a renovação mensal.`,
+          text: `Você não tem créditos suficientes para esta ação.\n\nCusto: **${cost} crédito${cost > 1 ? 's' : ''}** | Disponível: **${credits.totalAvailable} crédito${credits.totalAvailable !== 1 ? 's' : ''}**\n\nCompre créditos avulsos ou faça upgrade do seu plano.`,
           ts: Date.now(),
           isError: true,
         },
@@ -465,22 +489,38 @@ export default function AIAssistantPage() {
     setMessages((prev) => [...prev, { role: 'user', text: trimmed, ts: Date.now() }])
     setLoading(true)
 
-    // Simulated thinking delay
-    await new Promise((r) => setTimeout(r, 600 + Math.random() * 500))
+    // Call OpenAI (falls back to local engine if key not configured)
+    const { text: response, fromFallback } = await callAI(trimmed, cost, ctx)
 
-    const response = generateAIResponse(trimmed, ctx)
-
-    // Deduct credits (fire and forget — don't block UI)
-    if (user) {
-      consumeCredits(user.id, cost).catch(() => {})
-      setCredits((prev) =>
-        prev ? { ...prev, used: prev.used + cost, remaining: Math.max(0, prev.remaining - cost) } : prev
-      )
+    // Only deduct credits when response is not an error message
+    const isError = response.startsWith('⚠️')
+    if (!isError && user) {
+      consumeCredits(user.id, cost, planId).catch(() => {})
+      // Optimistic local update
+      setCredits((prev) => {
+        if (!prev) return prev
+        const monthlyDeduct = Math.min(cost, prev.remaining)
+        const extraDeduct   = cost - monthlyDeduct
+        return {
+          ...prev,
+          used:           prev.used + monthlyDeduct,
+          remaining:      Math.max(0, prev.remaining - monthlyDeduct),
+          extra:          Math.max(0, prev.extra - extraDeduct),
+          totalAvailable: Math.max(0, prev.totalAvailable - cost),
+        }
+      })
     }
 
     setMessages((prev) => [
       ...prev,
-      { role: 'assistant', text: response, ts: Date.now(), credits: cost },
+      {
+        role:     'assistant',
+        text:     response,
+        ts:       Date.now(),
+        credits:  isError ? undefined : cost,
+        isError,
+        fromFallback,
+      },
     ])
     setLoading(false)
   }, [loading, ctx, credits, user]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -490,7 +530,7 @@ export default function AIAssistantPage() {
   }
 
   // ── Credit status ──────────────────────────────────────────────────────────
-  const creditPct = credits ? credits.remaining / credits.total : 1
+  const creditPct = credits ? credits.totalAvailable / (credits.total + credits.extra) : 1
   const creditTextColor = creditColor(credits)
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -521,7 +561,7 @@ export default function AIAssistantPage() {
               <Zap className={cn('h-4 w-4', creditTextColor)} />
               <div className="text-left">
                 <p className={cn('text-sm font-bold leading-tight', creditTextColor)}>
-                  {credits.remaining}
+                  {credits.totalAvailable}
                   <span className="text-xs font-normal text-gray-400"> / {credits.total}</span>
                 </p>
                 <p className="text-[10px] text-gray-400 leading-tight">créditos</p>
@@ -541,6 +581,15 @@ export default function AIAssistantPage() {
             <div className="h-10 w-36 animate-pulse rounded-xl bg-gray-100" />
           )}
 
+          {/* Always-visible "Ver créditos" link */}
+          <a
+            href="/credits"
+            className="hidden rounded-xl border border-gray-200 px-3 py-2.5 text-xs font-medium text-gray-500 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 sm:flex items-center gap-1.5"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            Recarregar
+          </a>
+
           {messages.length > 0 && (
             <button
               onClick={() => setMessages([])}
@@ -556,7 +605,7 @@ export default function AIAssistantPage() {
       {/* ── Quick actions ── */}
       <div className="mb-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">
         {QUICK_ACTIONS.map((action) => {
-          const disabled = loading || !ctx || (credits !== null && credits.remaining < action.cost)
+          const disabled = loading || !ctx || (credits !== null && credits.totalAvailable < action.cost)
           return (
             <button
               key={action.label}
@@ -603,14 +652,14 @@ export default function AIAssistantPage() {
                 <div className="mt-6 flex items-center gap-2 rounded-full border border-gray-100 bg-gray-50 px-4 py-2 text-xs text-gray-500">
                   <Zap className={cn('h-3.5 w-3.5', creditTextColor)} />
                   <span>
-                    <span className={cn('font-semibold', creditTextColor)}>{credits.remaining}</span>
-                    {' '}créditos disponíveis este mês
-                    {credits.remaining <= 2 && (
+                    <span className={cn('font-semibold', creditTextColor)}>{credits.totalAvailable}</span>
+                    {' '}créditos disponíveis
+                    {credits.totalAvailable <= 2 && (
                       <button
                         onClick={() => setShowCreditModal(true)}
                         className="ml-2 font-semibold text-[#1a7cfa] hover:underline"
                       >
-                        Ver opções
+                        Comprar mais
                       </button>
                     )}
                   </span>
@@ -756,10 +805,11 @@ export default function AIAssistantPage() {
         </div>
       </div>
 
-      {/* Buy credits modal */}
-      {showCreditModal && (
-        <BuyCreditsModal onClose={() => setShowCreditModal(false)} planId={planId} />
-      )}
+      <CreditModal
+        open={showCreditModal}
+        onClose={() => setShowCreditModal(false)}
+        credits={credits}
+      />
     </div>
   )
 }

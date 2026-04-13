@@ -7,16 +7,18 @@ import {
   useEffect,
   useCallback,
 } from 'react'
-import { useAuth } from '@/contexts/AuthContext'
-import { getSubscription } from '@/lib/db/subscriptions'
+import { useAuth }           from '@/contexts/AuthContext'
+import { getSubscription }   from '@/lib/db/subscriptions'
 import {
   getPlan,
-  canAddStudent as _canAddStudent,
+  canAddStudent  as _canAddStudent,
   canGenerateAIPlan as _canGenerateAIPlan,
 } from '@/lib/plans'
-import { createClient } from '@/lib/supabase/client'
-import type { PlanId } from '@/lib/db/types'
-import type { PlanConfig } from '@/lib/plans'
+import { getCreditSummary }  from '@/lib/db/aiCredits'
+import { createClient }      from '@/lib/supabase/client'
+import type { PlanId }       from '@/lib/db/types'
+import type { PlanConfig }   from '@/lib/plans'
+import type { AICreditSummary } from '@/lib/db/aiCredits'
 
 export type { PlanConfig }
 
@@ -26,26 +28,31 @@ function currentYearMonth(): string {
 }
 
 interface SubscriptionContextValue {
-  planId: PlanId
-  plan: ReturnType<typeof getPlan>
-  studentsCount: number
-  aiPlansThisMonth: number
-  canAddStudent: boolean
+  planId:            PlanId
+  plan:              ReturnType<typeof getPlan>
+  studentsCount:     number
+  aiPlansThisMonth:  number
+  canAddStudent:     boolean
   canGenerateAIPlan: boolean
-  changePlan: (planId: PlanId) => void
-  refresh: () => void
+  aiCredits:         AICreditSummary | null
+  changePlan:        (planId: PlanId) => void
+  refresh:           () => void
+  refreshCredits:    () => void
 }
 
 const SubscriptionContext = createContext<SubscriptionContextValue | null>(null)
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
-  const [planId,          setPlanId]          = useState<PlanId>('free')
-  const [studentsCount,   setStudentsCount]   = useState(0)
+  const [planId,           setPlanId]           = useState<PlanId>('free')
+  const [studentsCount,    setStudentsCount]    = useState(0)
   const [aiPlansThisMonth, setAiPlansThisMonth] = useState(0)
-  const [revision,        setRevision]        = useState(0)
+  const [aiCredits,        setAiCredits]        = useState<AICreditSummary | null>(null)
+  const [revision,         setRevision]         = useState(0)
+  const [creditRevision,   setCreditRevision]   = useState(0)
 
-  const refresh = useCallback(() => setRevision((r) => r + 1), [])
+  const refresh        = useCallback(() => setRevision((r) => r + 1), [])
+  const refreshCredits = useCallback(() => setCreditRevision((r) => r + 1), [])
 
   // Load plan from Supabase
   useEffect(() => {
@@ -72,6 +79,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }).catch(() => {/* ignore */})
   }, [user, revision])
 
+  // Load AI credit summary
+  useEffect(() => {
+    if (!user) return
+    getCreditSummary(user.id, planId)
+      .then(setAiCredits)
+      .catch(() => setAiCredits(null))
+  }, [user, planId, revision, creditRevision])
+
   // Cakto activation check on mount
   useEffect(() => {
     if (!user?.email) return
@@ -84,8 +99,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       .then(async (body) => {
         const activation = body?.activation
         if (!activation?.planId) return
-        // Activation is now written to Supabase by the webhook directly.
-        // Just refresh so the new plan is loaded from DB.
         refresh()
       })
       .catch(() => {/* ignore */})
@@ -116,10 +129,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         plan,
         studentsCount,
         aiPlansThisMonth,
-        canAddStudent:    canAdd,
+        canAddStudent:     canAdd,
         canGenerateAIPlan: canGenerate,
+        aiCredits,
         changePlan,
         refresh,
+        refreshCredits,
       }}
     >
       {children}

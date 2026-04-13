@@ -1,15 +1,17 @@
 'use client'
 
-import Link from 'next/link'
-import { useAuth } from '@/contexts/AuthContext'
-import { useStudents } from '@/hooks/useStudents'
-import { useLessons } from '@/hooks/useLessons'
+import { useState }      from 'react'
+import Link              from 'next/link'
+import { useAuth }       from '@/contexts/AuthContext'
+import { useStudents }   from '@/hooks/useStudents'
+import { useLessons }    from '@/hooks/useLessons'
 import { useFinancial, formatCurrency, currentYearMonth, formatMonth } from '@/hooks/useFinancial'
-import { useNotifications } from '@/hooks/useNotifications'
-import { useSubscription } from '@/contexts/SubscriptionContext'
-import { Card } from '@/components/ui/Card'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { Button } from '@/components/ui/Button'
+import { useNotifications }  from '@/hooks/useNotifications'
+import { useSubscription }   from '@/contexts/SubscriptionContext'
+import CreditModal       from '@/components/ui/CreditModal'
+import { Card }          from '@/components/ui/Card'
+import { EmptyState }    from '@/components/ui/EmptyState'
+import { Button }        from '@/components/ui/Button'
 import {
   Users, Calendar, CheckCircle2, Clock, Music,
   ArrowUpRight, BookOpen, Plus, Crown, Zap,
@@ -18,7 +20,7 @@ import {
   CalendarDays, ChevronRight,
 } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
-import { PLANS } from '@/lib/plans'
+import { PLANS }         from '@/lib/plans'
 import type { LessonStatus } from '@/lib/db/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -74,7 +76,8 @@ export default function DashboardPage() {
   const { lessons, todayLessons, thisWeekLessons, create: createLesson, loading: lessonsLoading } = useLessons()
   const { summary, rows: financialRows, loading: financialLoading } = useFinancial()
   const { unreadCount } = useNotifications()
-  const { planId, plan, studentsCount, aiPlansThisMonth } = useSubscription()
+  const { planId, plan, studentsCount, aiPlansThisMonth, aiCredits } = useSubscription()
+  const [showCreditModal, setShowCreditModal] = useState(false)
 
   const loading = authLoading || studentsLoading || lessonsLoading || financialLoading
 
@@ -362,7 +365,7 @@ export default function DashboardPage() {
         )
       })()}
 
-      {/* Plan usage widget */}
+      {/* Plan + Credits widget */}
       <div className="mb-8">
         <Card className="overflow-hidden">
           <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
@@ -377,9 +380,7 @@ export default function DashboardPage() {
                   <Zap size={14} className="text-[#1a7cfa]" />
                 )}
               </div>
-              <h2 className="font-semibold text-gray-900">
-                Plano {plan.name}
-              </h2>
+              <h2 className="font-semibold text-gray-900">Plano {plan.name}</h2>
             </div>
             <Link
               href="/plans"
@@ -389,53 +390,88 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="px-6 py-4">
-            {planId === 'free' ? (
-              <div className="grid gap-4 sm:grid-cols-2">
-                {/* Students usage */}
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* Students usage */}
+              {PLANS[planId].limits.students !== null ? (
                 <div>
                   <div className="mb-1.5 flex justify-between text-xs">
                     <span className="text-gray-500">Alunos cadastrados</span>
                     <span className="font-semibold text-gray-700">
-                      {studentsCount} / {PLANS.free.limits.students}
+                      {studentsCount} / {PLANS[planId].limits.students}
                     </span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-gray-100">
                     <div
                       className={cn(
                         'h-full rounded-full transition-all',
-                        studentsCount >= (PLANS.free.limits.students ?? 0) ? 'bg-red-500' : 'bg-blue-500'
+                        studentsCount >= (PLANS[planId].limits.students ?? 0) ? 'bg-red-500' : 'bg-blue-500'
                       )}
-                      style={{ width: `${Math.min(100, (studentsCount / (PLANS.free.limits.students ?? 1)) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (studentsCount / (PLANS[planId].limits.students ?? 1)) * 100)}%` }}
                     />
                   </div>
                 </div>
-                {/* AI plans usage */}
-                <div>
-                  <div className="mb-1.5 flex justify-between text-xs">
-                    <span className="text-gray-500">Planos IA este mês</span>
-                    <span className="font-semibold text-gray-700">
-                      {aiPlansThisMonth} / {PLANS.free.limits.aiPlansPerMonth}
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className={cn(
-                        'h-full rounded-full transition-all',
-                        aiPlansThisMonth >= (PLANS.free.limits.aiPlansPerMonth ?? 0) ? 'bg-red-500' : 'bg-[#1a7cfa]'
-                      )}
-                      style={{ width: `${Math.min(100, (aiPlansThisMonth / (PLANS.free.limits.aiPlansPerMonth ?? 1)) * 100)}%` }}
-                    />
-                  </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-blue-500" />
+                  <p className="text-sm text-gray-500">Alunos ilimitados</p>
                 </div>
+              )}
+
+              {/* AI Credits usage */}
+              <div>
+                <div className="mb-1.5 flex justify-between text-xs">
+                  <span className="text-gray-500">Créditos de IA este mês</span>
+                  <span className="font-semibold text-gray-700">
+                    {aiCredits?.used ?? 0} / {aiCredits?.total ?? PLANS[planId].limits.aiCreditsPerMonth}
+                  </span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                  <div
+                    className={cn(
+                      'h-full rounded-full transition-all',
+                      (aiCredits?.used ?? 0) >= (aiCredits?.total ?? 1) ? 'bg-red-500' : 'bg-[#1a7cfa]'
+                    )}
+                    style={{
+                      width: `${Math.min(100, ((aiCredits?.used ?? 0) / (aiCredits?.total ?? PLANS[planId].limits.aiCreditsPerMonth)) * 100)}%`
+                    }}
+                  />
+                </div>
+                {(aiCredits?.extra ?? 0) > 0 && (
+                  <p className="mt-0.5 text-[11px] text-purple-600">+ {aiCredits!.extra} extras</p>
+                )}
               </div>
-            ) : (
-              <p className="text-sm text-gray-500">
-                {planId === 'studio' ? 'Studio' : 'Pro'} — alunos ilimitados e planos IA ilimitados.
-              </p>
-            )}
+            </div>
+          </div>
+
+          {/* Credit actions footer */}
+          <div className="flex items-center justify-between border-t border-gray-50 px-6 py-3">
+            <p className="text-sm text-gray-500">
+              <span className="font-semibold text-gray-900">{aiCredits?.totalAvailable ?? 0}</span> créditos disponíveis
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowCreditModal(true)}
+                className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+              >
+                <Zap className="h-3.5 w-3.5" />
+                Comprar créditos
+              </button>
+              <Link href="/ai-assistant">
+                <button className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Abrir IA
+                </button>
+              </Link>
+            </div>
           </div>
         </Card>
       </div>
+
+      <CreditModal
+        open={showCreditModal}
+        onClose={() => setShowCreditModal(false)}
+        credits={aiCredits}
+      />
 
       {/* Empty onboarding state */}
       {isDataEmpty && (

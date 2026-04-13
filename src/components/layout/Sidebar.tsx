@@ -18,6 +18,7 @@ import {
   ChevronRight,
   X,
   Sparkles,
+  Zap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -29,13 +30,14 @@ import { getInitials } from '@/lib/utils'
 import { MuslyMark } from '@/components/ui/MuslyLogo'
 
 const navItems = [
-  { label: 'Painel', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Alunos', href: '/students', icon: Users },
-  { label: 'Aulas', href: '/lessons', icon: Calendar },
-  { label: 'Agenda', href: '/agenda', icon: CalendarDays },
-  { label: 'Progresso', href: '/progress', icon: BarChart2 },
-  { label: 'Financeiro', href: '/billing', icon: CreditCard },
+  { label: 'Painel',        href: '/dashboard',    icon: LayoutDashboard },
+  { label: 'Alunos',        href: '/students',     icon: Users },
+  { label: 'Aulas',         href: '/lessons',      icon: Calendar },
+  { label: 'Agenda',        href: '/agenda',       icon: CalendarDays },
+  { label: 'Progresso',     href: '/progress',     icon: BarChart2 },
+  { label: 'Financeiro',    href: '/billing',      icon: CreditCard },
   { label: 'Assistente IA', href: '/ai-assistant', icon: Sparkles },
+  { label: 'Créditos',      href: '/credits',      icon: Zap },
 ]
 
 const bottomItems = [
@@ -58,7 +60,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname()
   const { user, signOut } = useAuth()
-  const { planId } = useSubscription()
+  const { planId, aiCredits } = useSubscription()
   const { unreadCount } = useNotifications()
   const [showNotifications, setShowNotifications] = useState(false)
   useAlerts()
@@ -111,6 +113,9 @@ export default function Sidebar({
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+            const isCredits = item.href === '/credits'
+            const creditsAvail = aiCredits?.totalAvailable ?? null
+            const creditLow = creditsAvail !== null && creditsAvail <= 5
 
             return (
               <li key={item.href}>
@@ -126,16 +131,31 @@ export default function Sidebar({
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                   )}
                 >
-                  <Icon
-                    className={cn('flex-shrink-0', isActive ? 'text-[#1a7cfa]' : 'text-gray-400')}
-                    size={18}
-                  />
+                  <div className="relative flex-shrink-0">
+                    <Icon
+                      className={cn(isActive ? 'text-[#1a7cfa]' : 'text-gray-400')}
+                      size={18}
+                    />
+                    {/* Low-credit dot indicator (collapsed mode only) */}
+                    {isCredits && collapsed && creditLow && (
+                      <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-amber-400" />
+                    )}
+                  </div>
                   {!collapsed && (
                     <>
                       {item.label}
-                      {isActive && (
+                      {isCredits && creditsAvail !== null ? (
+                        <span className={cn(
+                          'ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-bold',
+                          creditLow
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-blue-100 text-blue-700'
+                        )}>
+                          {creditsAvail}
+                        </span>
+                      ) : isActive ? (
                         <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[#1a7cfa]" />
-                      )}
+                      ) : null}
                     </>
                   )}
                 </Link>

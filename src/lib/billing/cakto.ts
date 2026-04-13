@@ -59,8 +59,6 @@ export const CAKTO_CONFIG = {
 // After creating products/offers in Cakto, map each offer code to an internal PlanId.
 // The offer code is the last segment of the checkout URL:
 //   e.g.  https://pay.cakto.com.br/abc123def  →  'abc123def'
-//
-// TODO: fill in your real offer IDs after creating products in Cakto
 export const CAKTO_OFFER_TO_PLAN: Record<string, Extract<PlanId, 'pro' | 'studio'>> = {
   // Full offer codes from checkout links (pay.cakto.com.br/<code>)
   '36wduu7_847737': 'pro',
@@ -68,6 +66,22 @@ export const CAKTO_OFFER_TO_PLAN: Record<string, Extract<PlanId, 'pro' | 'studio
   // Short variants (in case Cakto sends only the prefix before "_")
   '36wduu7': 'pro',
   'cq3xw25': 'studio',
+}
+
+// ─── Offer → Credit amount mapping ───────────────────────────────────────────
+// Maps Cakto offer codes (from checkout URLs) to extra credit amounts.
+// Offer codes are extracted from:
+//   https://pay.cakto.com.br/3cpthxs_848464  →  '3cpthxs_848464' (and short '3cpthxs')
+//   https://pay.cakto.com.br/39d9pis         →  '39d9pis'
+//   https://pay.cakto.com.br/4wzvusx         →  '4wzvusx'
+export const CAKTO_OFFER_TO_CREDITS: Record<string, number> = {
+  // 100 credits pack
+  '3cpthxs_848464': 100,
+  '3cpthxs':        100,
+  // 300 credits pack
+  '39d9pis':        300,
+  // 500 credits pack
+  '4wzvusx':        500,
 }
 
 // ─── Webhook payload types ────────────────────────────────────────────────────
