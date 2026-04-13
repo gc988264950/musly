@@ -19,7 +19,7 @@
  * See .env.local.example for the full variable list.
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { Check, Crown, Zap, Star, ExternalLink, X, Loader2, AlertCircle } from 'lucide-react'
 import { useSubscription } from '@/contexts/SubscriptionContext'
@@ -87,7 +87,18 @@ function CheckingBanner() {
 
 const PLAN_ORDER: PlanId[] = ['free', 'pro', 'studio']
 
+// ─── Default export — wraps content in Suspense (required by Next.js 14 for
+//     any component that calls useSearchParams during static generation) ────────
+
 export default function PlansPage() {
+  return (
+    <Suspense>
+      <PlansContent />
+    </Suspense>
+  )
+}
+
+function PlansContent() {
   const { user }                                          = useAuth()
   const { planId, changePlan, studentsCount, aiPlansThisMonth, refresh } = useSubscription()
   const searchParams                                      = useSearchParams()
