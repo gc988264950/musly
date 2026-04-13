@@ -62,8 +62,12 @@ export const CAKTO_CONFIG = {
 //
 // TODO: fill in your real offer IDs after creating products in Cakto
 export const CAKTO_OFFER_TO_PLAN: Record<string, Extract<PlanId, 'pro' | 'studio'>> = {
-  // 'abc123def': 'pro',
-  // 'xyz789ghi': 'studio',
+  // Full offer codes from checkout links (pay.cakto.com.br/<code>)
+  '36wduu7_847737': 'pro',
+  'cq3xw25_847738': 'studio',
+  // Short variants (in case Cakto sends only the prefix before "_")
+  '36wduu7': 'pro',
+  'cq3xw25': 'studio',
 }
 
 // ─── Webhook payload types ────────────────────────────────────────────────────

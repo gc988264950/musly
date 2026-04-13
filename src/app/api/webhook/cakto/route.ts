@@ -236,19 +236,27 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ── 5. Route by event type ───────────────────────────────────────────────────
   if (
-    event === 'purchase.approved' ||
-    event === 'order.approved'    ||
-    event === 'payment.approved'  ||
-    event === 'sale.approved'
+    event === 'purchase.approved'  ||
+    event === 'purchase_approved'  ||
+    event === 'order.approved'     ||
+    event === 'order_approved'     ||
+    event === 'payment.approved'   ||
+    event === 'payment_approved'   ||
+    event === 'sale.approved'      ||
+    event === 'sale_approved'
   ) {
     return handleApproved(payload)
   }
 
   if (
     event === 'purchase.refunded'   ||
+    event === 'purchase_refunded'   ||
     event === 'order.refunded'      ||
+    event === 'order_refunded'      ||
     event === 'purchase.chargeback' ||
-    event === 'sale.refunded'
+    event === 'purchase_chargeback' ||
+    event === 'sale.refunded'       ||
+    event === 'sale_refunded'
   ) {
     return handleRefund(payload)
   }
