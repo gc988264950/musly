@@ -7,18 +7,20 @@ import { getLessons, todayISO } from '@/lib/db/lessons'
 import { getStudents } from '@/lib/db/students'
 import { getAllPayments } from '@/lib/db/payments'
 import { getAllFinancial } from '@/lib/db/financial'
+import { getTeacherProfile, buildTeacherContext, instrumentLabel, type TeacherProfile } from '@/lib/db/teacherProfile'
 import { cn } from '@/lib/utils'
 import type { Lesson, Student, Payment, StudentFinancial } from '@/lib/db/types'
 
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 interface SystemContext {
-  lessons: Lesson[]
-  students: Student[]
-  payments: Payment[]
-  financials: StudentFinancial[]
-  teacherId: string
-  today: string
+  lessons:        Lesson[]
+  students:       Student[]
+  payments:       Payment[]
+  financials:     StudentFinancial[]
+  teacherId:      string
+  today:          string
+  teacherProfile: TeacherProfile | null
 }
 
 // ─── AI response engine ───────────────────────────────────────────────────────
@@ -150,8 +152,19 @@ function generateAIResponse(prompt: string, ctx: SystemContext): string {
     return lines.join('\n')
   }
 
+  // ── Perfil do professor ───────────────────────────────────────────────────
+  if (p.includes('perfil') || p.includes('meu instrumento') || p.includes('minhas configurações') || p.includes('configuracoes')) {
+    const profile = ctx.teacherProfile
+    if (!profile) return 'Ainda não encontrei seu perfil configurado. Complete o questionário de configuração para personalizar sua experiência.'
+    return `Seu perfil:\n• **Instrumento:** ${instrumentLabel(profile.instrumento)}\n• **Estilo de aula:** ${profile.estilo_aula}\n• **Nível dos alunos:** ${profile.nivel}\n• **Faixa etária:** ${profile.faixa_etaria}\n• **Principal dificuldade:** ${profile.dificuldade}\n• **Acompanhamento:** ${profile.acompanhamento}\n• **Quantidade de alunos:** ${profile.quantidade_alunos}`
+  }
+
   // ── Fallback ──────────────────────────────────────────────────────────────
-  return `Posso te ajudar com informações sobre:\n• **Próxima aula** — "Qual é minha próxima aula?"\n• **Agenda de hoje** — "Quantas aulas tenho hoje?"\n• **Semana** — "Como está minha semana?"\n• **Pagamentos** — "Quais pagamentos estão pendentes?"\n• **Alunos** — "Quantos alunos tenho?"\n• **Dificuldades** — "Qual aluno tem mais dificuldade?"\n• **Progresso** — "Como está o progresso dos alunos?"\n• **Resumo** — "Como está tudo?"\n\nTente uma dessas perguntas!`
+  const profileHint = ctx.teacherProfile
+    ? `Como professor de **${instrumentLabel(ctx.teacherProfile.instrumento)}**, posso te ajudar com:`
+    : 'Posso te ajudar com informações sobre:'
+
+  return `${profileHint}\n• **Próxima aula** — "Qual é minha próxima aula?"\n• **Agenda de hoje** — "Quantas aulas tenho hoje?"\n• **Semana** — "Como está minha semana?"\n• **Pagamentos** — "Quais pagamentos estão pendentes?"\n• **Alunos** — "Quantos alunos tenho?"\n• **Dificuldades** — "Qual aluno tem mais dificuldade?"\n• **Progresso** — "Como está o progresso dos alunos?"\n• **Resumo** — "Como está tudo?"\n• **Perfil** — "Qual é meu perfil?"\n\nTente uma dessas perguntas!`
 }
 
 // ─── Markdown-lite renderer ───────────────────────────────────────────────────
@@ -205,8 +218,9 @@ export default function AIAssistantPage() {
       getStudents(teacherId).catch(() => [] as Student[]),
       getAllPayments(teacherId).catch(() => [] as Payment[]),
       getAllFinancial(teacherId).catch(() => [] as StudentFinancial[]),
-    ]).then(([lessons, students, payments, financials]) => {
-      setCtx({ lessons, students, payments, financials, teacherId, today: todayISO() })
+      getTeacherProfile(teacherId).catch(() => null),
+    ]).then(([lessons, students, payments, financials, teacherProfile]) => {
+      setCtx({ lessons, students, payments, financials, teacherId, today: todayISO(), teacherProfile })
     })
   }, [user?.id])
 
@@ -237,7 +251,9 @@ export default function AIAssistantPage() {
             Assistente IA
           </h1>
           <p className="mt-0.5 text-sm text-gray-500">
-            Pergunte sobre suas aulas, alunos, pagamentos e mais.
+            {ctx?.teacherProfile
+              ? `IA personalizada para ${instrumentLabel(ctx.teacherProfile.instrumento)} · ${ctx.teacherProfile.nivel}`
+              : 'Pergunte sobre suas aulas, alunos, pagamentos e mais.'}
           </p>
         </div>
         {messages.length > 0 && (
