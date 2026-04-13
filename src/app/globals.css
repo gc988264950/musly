@@ -28,20 +28,6 @@
     color: #0f172a;
   }
 
-  /* Prevent iOS Safari auto-zoom on input focus (requires font-size >= 16px) */
-  input,
-  textarea,
-  select {
-    font-size: max(16px, 1em);
-  }
-
-  /* Prevent double-tap zoom on interactive elements */
-  button,
-  a,
-  [role="button"] {
-    touch-action: manipulation;
-  }
-
   /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
@@ -88,4 +74,27 @@
   .animate-in {
     animation: fade-in 0.4s ease-out, slide-up 0.4s ease-out;
   }
+}
+
+/*
+ * ── Mobile zoom prevention ──────────────────────────────────────────────────
+ * MUST be outside @layer so these rules are emitted AFTER @tailwind utilities
+ * and therefore override text-sm / text-xs applied via Tailwind classes.
+ * iOS Safari auto-zooms when an input has font-size < 16px on focus.
+ */
+input,
+textarea,
+select {
+  font-size: max(16px, 1em);
+}
+
+/* Eliminate 300ms tap delay and double-tap zoom on interactive elements */
+button,
+a,
+[role="button"],
+input[type="submit"],
+input[type="button"],
+input[type="reset"],
+label {
+  touch-action: manipulation;
 }

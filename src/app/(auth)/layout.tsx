@@ -3,7 +3,7 @@ import { MuslyLogo, MuslyMark } from '@/components/ui/MuslyLogo'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-[100dvh]">
       {/* ── Left panel: branding ── */}
       <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-[#060f22] p-12 text-white lg:flex">
         {/* Glow orbs */}
@@ -53,15 +53,22 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       </div>
 
       {/* ── Right panel: form ── */}
-      <div className="flex flex-1 flex-col justify-center bg-white px-6 py-12 sm:px-12 lg:px-16">
-        {/* Mobile logo */}
-        <div className="mb-8 lg:hidden">
-          <Link href="/">
-            <MuslyLogo size="lg" variant="blue" />
-          </Link>
-        </div>
+      {/*
+        overflow-y-auto: allows the form to scroll when the virtual keyboard
+        shrinks the viewport (iOS Safari). dvh on the outer wrapper ensures
+        the layout never exceeds the visible area.
+      */}
+      <div className="flex flex-1 flex-col overflow-y-auto bg-white px-6 py-10 sm:px-12 sm:py-12 lg:px-16">
+        <div className="flex flex-1 flex-col justify-center">
+          {/* Mobile logo */}
+          <div className="mb-8 lg:hidden">
+            <Link href="/">
+              <MuslyLogo size="lg" variant="blue" />
+            </Link>
+          </div>
 
-        <div className="mx-auto w-full max-w-md">{children}</div>
+          <div className="mx-auto w-full max-w-md">{children}</div>
+        </div>
       </div>
     </div>
   )

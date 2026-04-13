@@ -154,156 +154,165 @@ function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onS
   const style = statusStyle[lesson.status]
 
   return (
-    <div className="group relative flex items-start gap-4 rounded-xl border border-gray-100 bg-white px-4 py-3.5 shadow-card transition-all duration-150 hover:shadow-card-hover">
-      {/* Status dot */}
-      <div className="mt-1 flex-shrink-0">
-        <div className={cn('h-2.5 w-2.5 rounded-full', style.dot)} />
+    <div className="group rounded-xl border border-gray-100 bg-white px-4 py-3.5 shadow-card transition-all duration-150 hover:shadow-card-hover">
+      {/* ── Top row: dot + time + name + status ── */}
+      <div className="flex items-start gap-3">
+        <div className="mt-1.5 flex-shrink-0">
+          <div className={cn('h-2.5 w-2.5 rounded-full', style.dot)} />
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span className="text-sm font-bold text-gray-900">{formatTime(lesson.time)}</span>
+            <span className="text-sm font-medium text-gray-800 truncate">{studentName}</span>
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400">
+            <span className="flex items-center gap-1">
+              <Music className="h-3 w-3" /> {lesson.instrument}
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" /> {formatDuration(lesson.duration)}
+            </span>
+            {lesson.topic && (
+              <span className="flex items-center gap-1 italic">
+                <BookOpen className="h-3 w-3" /> {lesson.topic}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Status badge + desktop secondary actions */}
+        <div className="flex flex-shrink-0 items-center gap-1.5">
+          {/* Status dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setStatusOpen((v) => !v)}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:opacity-80',
+                style.pill
+              )}
+            >
+              {style.label}
+              <ChevronDown className="h-3 w-3" />
+            </button>
+            {statusOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setStatusOpen(false)} />
+                <div className="absolute right-0 top-full z-20 mt-1 min-w-[130px] overflow-hidden rounded-xl border border-gray-100 bg-white shadow-card-hover">
+                  {LESSON_STATUSES.map((s) => (
+                    <button
+                      key={s.value}
+                      onClick={() => { onStatusChange(s.value); setStatusOpen(false) }}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50',
+                        lesson.status === s.value ? 'text-blue-600' : 'text-gray-700'
+                      )}
+                    >
+                      <div className={cn('h-2 w-2 rounded-full', statusStyle[s.value].dot)} />
+                      {s.label}
+                      {lesson.status === s.value && <CheckCircle2 className="ml-auto h-3 w-3" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Desktop-only: remarcar + edit/delete */}
+          {lesson.status === 'agendada' && (
+            <button
+              onClick={() => { setRescheduling((v) => !v); setRescheduleError('') }}
+              title="Remarcar aula"
+              className={cn(
+                'hidden sm:flex rounded-lg p-1.5 text-gray-400 transition-colors opacity-0 group-hover:opacity-100',
+                rescheduling ? 'bg-blue-50 text-blue-600' : 'hover:bg-blue-50 hover:text-blue-600'
+              )}
+            >
+              <Calendar className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <div className="hidden sm:flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+            <button onClick={onEdit} className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600" aria-label="Editar">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={onDelete} className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label="Excluir">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Main info */}
-      <div className="flex flex-1 flex-wrap items-center gap-x-4 gap-y-1 min-w-0">
-        <span className="text-sm font-semibold text-gray-900 min-w-[120px]">
-          {formatTime(lesson.time)}
-        </span>
-        <span className="font-medium text-gray-800 text-sm">{studentName}</span>
-        <span className="flex items-center gap-1 text-xs text-gray-400">
-          <Music className="h-3 w-3" /> {lesson.instrument}
-        </span>
-        <span className="flex items-center gap-1 text-xs text-gray-400">
-          <Clock className="h-3 w-3" /> {formatDuration(lesson.duration)}
-        </span>
-        {lesson.topic && (
-          <span className="flex items-center gap-1 text-xs text-gray-500 italic">
-            <BookOpen className="h-3 w-3" /> {lesson.topic}
-          </span>
-        )}
-      </div>
-
-      {/* Right: status + actions */}
-      <div className="flex flex-shrink-0 items-center gap-2">
-        {/* Iniciar aula */}
-        {lesson.status === 'agendada' && (
+      {/* ── Action row (mobile: always visible; desktop: merged into top row) ── */}
+      {lesson.status === 'agendada' && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-5">
           <button
             onClick={() => router.push(`/lesson-mode/${lesson.id}`)}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-            title="Iniciar aula"
+            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
           >
             <PlayCircle className="h-3.5 w-3.5" />
             Iniciar aula
           </button>
-        )}
-        {/* Meet link */}
-        {studentMeetLink && (
-          <a
-            href={studentMeetLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 rounded-lg bg-green-50 px-2.5 py-1.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100"
-            title="Entrar na aula"
-          >
-            <Video className="h-3.5 w-3.5" />
-            Entrar na aula
-          </a>
-        )}
-        {/* Status dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => setStatusOpen((v) => !v)}
-            className={cn(
-              'flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors hover:opacity-80',
-              style.pill
-            )}
-          >
-            {style.label}
-            <ChevronDown className="h-3 w-3" />
-          </button>
-          {statusOpen && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setStatusOpen(false)} />
-              <div className="absolute right-0 top-full z-20 mt-1 min-w-[130px] overflow-hidden rounded-xl border border-gray-100 bg-white shadow-card-hover">
-                {LESSON_STATUSES.map((s) => (
-                  <button
-                    key={s.value}
-                    onClick={() => {
-                      onStatusChange(s.value)
-                      setStatusOpen(false)
-                    }}
-                    className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2 text-xs font-medium transition-colors hover:bg-gray-50',
-                      lesson.status === s.value ? 'text-blue-600' : 'text-gray-700'
-                    )}
-                  >
-                    <div className={cn('h-2 w-2 rounded-full', statusStyle[s.value].dot)} />
-                    {s.label}
-                    {lesson.status === s.value && <CheckCircle2 className="ml-auto h-3 w-3" />}
-                  </button>
-                ))}
-              </div>
-            </>
+          {studentMeetLink && (
+            <a
+              href={studentMeetLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100"
+            >
+              <Video className="h-3.5 w-3.5" />
+              Entrar na aula
+            </a>
           )}
-        </div>
-
-        {/* Remarcar */}
-        {lesson.status === 'agendada' && (
+          {/* Mobile-only: remarcar + edit/delete */}
           <button
             onClick={() => { setRescheduling((v) => !v); setRescheduleError('') }}
-            title="Remarcar aula"
+            title="Remarcar"
             className={cn(
-              'rounded-lg p-1.5 text-gray-400 transition-colors opacity-0 group-hover:opacity-100',
+              'sm:hidden rounded-lg p-1.5 text-gray-400 transition-colors',
               rescheduling ? 'bg-blue-50 text-blue-600' : 'hover:bg-blue-50 hover:text-blue-600'
             )}
           >
             <Calendar className="h-3.5 w-3.5" />
           </button>
-        )}
-        {/* Edit / Delete */}
-        <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          <button
-            onClick={onEdit}
-            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
-            aria-label="Editar"
-          >
+          <button onClick={onEdit} className="sm:hidden rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600" aria-label="Editar">
             <Pencil className="h-3.5 w-3.5" />
           </button>
-          <button
-            onClick={onDelete}
-            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
-            aria-label="Excluir"
-          >
+          <button onClick={onDelete} className="sm:hidden rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600" aria-label="Excluir">
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         </div>
-      </div>
+      )}
 
       {/* Inline reschedule panel */}
       {rescheduling && (
-        <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
-          <p className="mb-3 text-xs font-semibold text-blue-800">Remarcar aula — {studentName}</p>
-          <div className="flex flex-wrap gap-3">
+        <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-3">
+          <p className="mb-3 text-xs font-semibold text-blue-800">Remarcar — {studentName}</p>
+          <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-blue-700">Nova data</label>
               <input type="date" value={newDate} min={todayISO()}
                 onChange={(e) => { setNewDate(e.target.value); setRescheduleError('') }}
-                className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
             </div>
             <div>
               <label className="mb-1 block text-xs font-medium text-blue-700">Novo horário</label>
               <input type="time" value={newTime}
                 onChange={(e) => { setNewTime(e.target.value); setRescheduleError('') }}
-                className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
             </div>
-            <div className="flex items-end gap-2">
-              <button onClick={handleRescheduleSave}
-                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition-colors">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar
-              </button>
-              <button onClick={() => setRescheduling(false)}
-                className="rounded-lg px-3 py-2 text-xs text-gray-500 hover:bg-blue-100 transition-colors">
-                Cancelar
-              </button>
-            </div>
+          </div>
+          <div className="mt-3 flex gap-2">
+            <button onClick={handleRescheduleSave}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition-colors">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar
+            </button>
+            <button onClick={() => setRescheduling(false)}
+              className="rounded-lg px-3 py-2 text-xs text-gray-500 hover:bg-blue-100 transition-colors">
+              Cancelar
+            </button>
           </div>
           {rescheduleError && <p className="mt-2 text-xs text-red-600">{rescheduleError}</p>}
         </div>
@@ -352,7 +361,7 @@ function LessonForm({ form, errors, onChange, students }: LessonFormProps) {
       </div>
 
       {/* Date + Time */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Input
           label="Data *"
           type="date"
@@ -370,7 +379,7 @@ function LessonForm({ form, errors, onChange, students }: LessonFormProps) {
       </div>
 
       {/* Duration + Instrument */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-gray-700">Duração</label>
           <select

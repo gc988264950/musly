@@ -27,7 +27,11 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    /*
+     * Mobile: slide up from bottom (bottom sheet).
+     * Desktop (sm+): centred with padding, constrained width.
+     */
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
@@ -38,17 +42,30 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
       {/* Panel */}
       <div
         className={cn(
-          'relative w-full overflow-hidden rounded-2xl bg-white shadow-2xl animate-slide-up',
-          size === 'sm' && 'max-w-sm',
-          size === 'md' && 'max-w-lg',
-          size === 'lg' && 'max-w-2xl'
+          // Layout
+          'relative flex w-full flex-col',
+          // Shape: pill-top on mobile, fully rounded on desktop
+          'rounded-t-2xl sm:rounded-2xl',
+          // Height: dvh shrinks when the virtual keyboard is open
+          'max-h-[92dvh] sm:max-h-[85vh]',
+          // Width cap (desktop only)
+          size === 'sm' && 'sm:max-w-sm',
+          size === 'md' && 'sm:max-w-lg',
+          size === 'lg' && 'sm:max-w-2xl',
+          // Cosmetics
+          'bg-white shadow-2xl'
         )}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
       >
+        {/* Drag handle (visual affordance on mobile) */}
+        <div className="flex justify-center pt-3 sm:hidden">
+          <div className="h-1 w-10 rounded-full bg-gray-200" />
+        </div>
+
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+        <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-100 px-6 py-4">
           <h2 id="modal-title" className="text-lg font-semibold text-gray-900">
             {title}
           </h2>
@@ -61,8 +78,13 @@ export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalPr
           </button>
         </div>
 
-        {/* Body — scrollable if tall */}
-        <div className="max-h-[80vh] overflow-y-auto px-6 py-5">{children}</div>
+        {/* Body — scrollable, respects iPhone home indicator */}
+        <div
+          className="flex-1 overflow-y-auto px-6 py-5"
+          style={{ paddingBottom: 'max(1.25rem, env(safe-area-inset-bottom))' }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   )
