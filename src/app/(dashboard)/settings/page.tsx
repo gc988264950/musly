@@ -1,22 +1,25 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { User, Mail, BookOpen, Check, Save, Users, Plus, Trash2, AlertCircle, X } from 'lucide-react'
+import { Check, Save, Plus, Trash2, AlertCircle, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getUserSettings, saveUserSettings } from '@/lib/db/userSettings'
 import { getStudents, updateStudent } from '@/lib/db/students'
-import {
-  updateUser,
-  getStudentAccountsByTeacher,
-  createStudentAccount,
-  deleteStudentAccount,
-  type StoredStudentAccount,
-} from '@/lib/mock-auth'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { cn } from '@/lib/utils'
 import type { Student } from '@/lib/db/types'
+
+interface StudentAccount {
+  id:              string
+  email:           string
+  firstName:       string
+  lastName:        string
+  linkedStudentId: string
+  createdAt:       string
+}
 
 // ─── Section wrapper ──────────────────────────────────────────────────────────
 
@@ -56,7 +59,7 @@ export default function SettingsPage() {
 
   // Student accounts
   const [students, setStudents] = useState<Student[]>([])
-  const [accounts, setAccounts] = useState<StoredStudentAccount[]>([])
+  const [accounts, setAccounts] = useState<StudentAccount[]>([])
   const [showAccountForm, setShowAccountForm] = useState(false)
   const [accountStudentId, setAccountStudentId] = useState('')
   const [accountEmail, setAccountEmail] = useState('')
@@ -65,25 +68,30 @@ export default function SettingsPage() {
   const [accountError, setAccountError] = useState('')
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
 
-  const reloadAccounts = useCallback(() => {
+  const reloadAccounts = useCallback(async () => {
     if (!user) return
-    setAccounts(getStudentAccountsByTeacher(user.id))
     setStudents(getStudents(user.id))
+    try {
+      const res = await fetch(`/api/admin/list-students?teacherId=${encodeURIComponent(user.id)}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAccounts(data.students ?? [])
+      }
+    } catch { /* network error — leave accounts unchanged */ }
   }, [user])
 
   // Load saved settings on mount
   useEffect(() => {
     if (!user) return
     const settings = getUserSettings(user.id)
-    // Prefer saved settings; fall back to auth user
     setFirstName(settings?.firstName || user.firstName || '')
-    setLastName(settings?.lastName || user.lastName || '')
-    setEmail(settings?.email || user.email || '')
+    setLastName(settings?.lastName  || user.lastName  || '')
+    setEmail(settings?.email        || user.email     || '')
     setTeachingMethod(settings?.teachingMethod || '')
     reloadAccounts()
   }, [user, reloadAccounts])
 
-  function handleSaveProfile() {
+  async function handleSaveProfile() {
     if (!user) return
     if (!firstName.trim() || !email.trim()) {
       setProfileError('Nome e e-mail são obrigatórios.')
@@ -92,20 +100,23 @@ export default function SettingsPage() {
     setProfileError('')
     setProfileSaving(true)
     try {
-      // Update mock auth session
-      updateUser(user.id, {
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim(),
+      const supabase = createClient()
+      const { error } = await supabase.auth.updateUser({
+        ...(email.trim() !== user.email ? { email: email.trim() } : {}),
+        data: {
+          firstName: firstName.trim(),
+          lastName:  lastName.trim(),
+        },
       })
-      // Persist settings record
+      if (error) throw new Error(error.message)
+
       saveUserSettings(user.id, {
         firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        email: email.trim(),
+        lastName:  lastName.trim(),
+        email:     email.trim(),
         teachingMethod,
       })
-      refreshAuth()
+      await refreshAuth()
       setProfileSaved(true)
       setTimeout(() => setProfileSaved(false), 3000)
     } catch (err) {
@@ -127,7 +138,7 @@ export default function SettingsPage() {
     }
   }
 
-  function handleCreateAccount() {
+  async function handleCreateAccount() {
     if (!user) return
     if (!accountStudentId) { setAccountError('Selecione um aluno.'); return }
     if (!accountEmail.trim()) { setAccountError('Informe o e-mail.'); return }
@@ -138,15 +149,22 @@ export default function SettingsPage() {
       const student = students.find((s) => s.id === accountStudentId)
       if (!student) throw new Error('Aluno não encontrado.')
       const emailToUse = accountEmail.trim()
-      createStudentAccount({
-        email: emailToUse,
-        password: accountPassword,
-        firstName: student.name.split(' ')[0],
-        lastName: student.name.split(' ').slice(1).join(' '),
-        linkedStudentId: student.id,
-        teacherId: user.id,
+
+      const res = await fetch('/api/admin/create-student', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:           emailToUse,
+          password:        accountPassword,
+          firstName:       student.name.split(' ')[0],
+          lastName:        student.name.split(' ').slice(1).join(' ') || '',
+          linkedStudentId: student.id,
+          teacherId:       user.id,
+        }),
       })
-      // Sync email back to student profile if not already set
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Erro ao criar conta.')
+
       if (!student.email) {
         try { updateStudent(student.id, { email: emailToUse }) } catch { /* noop */ }
       }
@@ -154,7 +172,7 @@ export default function SettingsPage() {
       setAccountEmail('')
       setAccountPassword('')
       setShowAccountForm(false)
-      reloadAccounts()
+      await reloadAccounts()
     } catch (err) {
       setAccountError(err instanceof Error ? err.message : 'Erro ao criar conta.')
     } finally {
@@ -162,18 +180,25 @@ export default function SettingsPage() {
     }
   }
 
-  function handleDeleteAccount(accountId: string) {
+  async function handleDeleteAccount(accountId: string) {
     if (!confirm('Excluir esta conta de aluno? O aluno não poderá mais acessar o portal.')) return
     setDeletingAccountId(accountId)
     try {
-      deleteStudentAccount(accountId)
-      reloadAccounts()
+      const res = await fetch('/api/admin/delete-student', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: accountId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Erro ao excluir.')
+      await reloadAccounts()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao excluir conta.')
     } finally {
       setDeletingAccountId(null)
     }
   }
 
-  // Students that don't yet have a linked account
   const studentsWithoutAccount = students.filter(
     (s) => !accounts.some((a) => a.linkedStudentId === s.id)
   )

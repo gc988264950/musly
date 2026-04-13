@@ -6,16 +6,15 @@ import { useRouter } from 'next/navigation'
 import { Mail, Lock, Eye, EyeOff, GraduationCap } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { logIn } from '@/lib/mock-auth'
-import { useAuth } from '@/contexts/AuthContext'
+import { createClient } from '@/lib/supabase/client'
 
 export default function StudentLoginForm() {
   const [showPassword, setShowPassword] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loading,      setLoading]      = useState(false)
   const [formData, setFormData] = useState({ email: '', password: '' })
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const router = useRouter()
-  const { refresh } = useAuth()
+  const [errors,   setErrors]   = useState<Record<string, string>>({})
+  const router   = useRouter()
+  const supabase = createClient()
 
   function validate() {
     const e: Record<string, string> = {}
@@ -28,28 +27,31 @@ export default function StudentLoginForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const validationErrors = validate()
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors)
-      return
-    }
+    if (Object.keys(validationErrors).length > 0) { setErrors(validationErrors); return }
     setErrors({})
     setLoading(true)
 
-    try {
-      const user = logIn(formData.email, formData.password)
-      if (user.role !== 'aluno') {
-        setErrors({ form: 'Este acesso é exclusivo para alunos. Professores devem usar o login principal.' })
-        setLoading(false)
-        return
-      }
-      refresh()
-      router.push('/student/dashboard')
-    } catch (err) {
-      setErrors({
-        form: err instanceof Error ? err.message : 'Erro ao entrar. Verifique suas credenciais.',
-      })
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email:    formData.email,
+      password: formData.password,
+    })
+
+    if (error) {
+      setErrors({ form: 'E-mail ou senha incorretos. Verifique suas credenciais.' })
       setLoading(false)
+      return
     }
+
+    const role = data.user?.user_metadata?.role ?? 'professor'
+    if (role !== 'aluno') {
+      setErrors({ form: 'Este acesso é exclusivo para alunos. Professores devem usar o login principal.' })
+      await supabase.auth.signOut()
+      setLoading(false)
+      return
+    }
+
+    router.push('/student/dashboard')
+    router.refresh()
   }
 
   return (
@@ -107,10 +109,7 @@ export default function StudentLoginForm() {
 
       <p className="text-center text-sm text-gray-500">
         É professor?{' '}
-        <Link
-          href="/login"
-          className="font-semibold text-blue-600 transition-colors hover:text-[#1468d6]"
-        >
+        <Link href="/login" className="font-semibold text-blue-600 transition-colors hover:text-[#1468d6]">
           Acessar como professor
         </Link>
       </p>

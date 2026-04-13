@@ -6,16 +6,16 @@ import { useRouter } from 'next/navigation'
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { logIn } from '@/lib/mock-auth'
-import { useAuth } from '@/contexts/AuthContext'
+import { createClient } from '@/lib/supabase/client'
 
 export default function LoginForm() {
   const [showPassword, setShowPassword] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loading,      setLoading]      = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const [formData, setFormData] = useState({ email: '', password: '' })
-  const [errors, setErrors] = useState<Record<string, string>>({})
-  const router = useRouter()
-  const { refresh } = useAuth()
+  const [errors,   setErrors]   = useState<Record<string, string>>({})
+  const router   = useRouter()
+  const supabase = createClient()
 
   function validate() {
     const e: Record<string, string> = {}
@@ -28,23 +28,39 @@ export default function LoginForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const validationErrors = validate()
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors)
-      return
-    }
+    if (Object.keys(validationErrors).length > 0) { setErrors(validationErrors); return }
     setErrors({})
     setLoading(true)
 
-    try {
-      const user = logIn(formData.email, formData.password)
-      refresh()
-      router.push(user.role === 'aluno' ? '/student/dashboard' : '/dashboard')
-    } catch (err) {
-      setErrors({
-        form: err instanceof Error ? err.message : 'Erro ao entrar. Tente novamente.',
-      })
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email:    formData.email,
+      password: formData.password,
+    })
+
+    if (error) {
+      setErrors({ form: 'E-mail ou senha incorretos.' })
       setLoading(false)
+      return
     }
+
+    const role = data.user?.user_metadata?.role ?? 'professor'
+    router.push(role === 'aluno' ? '/student/dashboard' : '/dashboard')
+    router.refresh()
+  }
+
+  async function handleGoogle() {
+    setGoogleLoading(true)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+    if (error) {
+      setErrors({ form: 'Erro ao conectar com o Google. Tente novamente.' })
+      setGoogleLoading(false)
+    }
+    // On success, browser is redirected — no further action needed
   }
 
   return (
@@ -88,24 +104,10 @@ export default function LoginForm() {
           }
         />
         <div className="mt-2 flex justify-end">
-          <Link
-            href="#"
-            className="text-xs text-blue-600 transition-colors hover:text-[#1468d6]"
-          >
+          <Link href="#" className="text-xs text-blue-600 transition-colors hover:text-[#1468d6]">
             Esqueceu a senha?
           </Link>
         </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <input
-          id="remember"
-          type="checkbox"
-          className="h-4 w-4 rounded border-gray-300 accent-blue-600"
-        />
-        <label htmlFor="remember" className="text-sm text-gray-500">
-          Lembrar por 30 dias
-        </label>
       </div>
 
       <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full">
@@ -123,18 +125,21 @@ export default function LoginForm() {
 
       <button
         type="button"
-        className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+        onClick={handleGoogle}
+        disabled={googleLoading}
+        className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-60"
       >
-        <GoogleIcon />
-        Google
+        {googleLoading ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+        ) : (
+          <GoogleIcon />
+        )}
+        {googleLoading ? 'Redirecionando…' : 'Google'}
       </button>
 
       <p className="text-center text-sm text-gray-500">
         Não tem uma conta?{' '}
-        <Link
-          href="/signup"
-          className="font-semibold text-blue-600 transition-colors hover:text-[#1468d6]"
-        >
+        <Link href="/signup" className="font-semibold text-blue-600 transition-colors hover:text-[#1468d6]">
           Cadastre-se grátis
         </Link>
       </p>

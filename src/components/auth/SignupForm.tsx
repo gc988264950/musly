@@ -5,46 +5,32 @@ import { useRouter } from 'next/navigation'
 import { Mail, Lock, Eye, EyeOff, User } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { signUp } from '@/lib/mock-auth'
-import { useAuth } from '@/contexts/AuthContext'
+import { createClient } from '@/lib/supabase/client'
 
 const instruments = [
-  'Piano',
-  'Violão / Guitarra',
-  'Violino',
-  'Canto',
-  'Bateria / Percussão',
-  'Contrabaixo',
-  'Violoncelo',
-  'Flauta',
-  'Saxofone',
-  'Trompete',
-  'Outro',
+  'Piano', 'Violão / Guitarra', 'Violino', 'Canto', 'Bateria / Percussão',
+  'Contrabaixo', 'Violoncelo', 'Flauta', 'Saxofone', 'Trompete', 'Outro',
 ]
 
 export default function SignupForm() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    instrument: '',
-    agreeToTerms: false,
+    firstName: '', lastName: '', email: '', password: '', instrument: '', agreeToTerms: false,
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const router = useRouter()
-  const { refresh } = useAuth()
+  const router   = useRouter()
+  const supabase = createClient()
 
   function validate() {
     const e: Record<string, string> = {}
     if (!formData.firstName.trim()) e.firstName = 'O nome é obrigatório'
-    if (!formData.lastName.trim()) e.lastName = 'O sobrenome é obrigatório'
-    if (!formData.email) e.email = 'O e-mail é obrigatório'
+    if (!formData.lastName.trim())  e.lastName  = 'O sobrenome é obrigatório'
+    if (!formData.email)            e.email     = 'O e-mail é obrigatório'
     else if (!/\S+@\S+\.\S+/.test(formData.email)) e.email = 'Informe um e-mail válido'
-    if (!formData.password) e.password = 'A senha é obrigatória'
-    else if (formData.password.length < 8) e.password = 'A senha deve ter pelo menos 8 caracteres'
+    if (!formData.password)                   e.password = 'A senha é obrigatória'
+    else if (formData.password.length < 8)    e.password = 'A senha deve ter pelo menos 8 caracteres'
     else if (!/[A-Z]/.test(formData.password)) e.password = 'A senha deve conter pelo menos uma letra maiúscula'
     else if (!/[0-9]/.test(formData.password)) e.password = 'A senha deve conter pelo menos um número'
     if (!formData.agreeToTerms) e.agreeToTerms = 'Você deve aceitar os termos para continuar'
@@ -53,43 +39,60 @@ export default function SignupForm() {
 
   function getPasswordStrength(pwd: string): { score: number; label: string; color: string } {
     let score = 0
-    if (pwd.length >= 8) score++
-    if (pwd.length >= 12) score++
-    if (/[A-Z]/.test(pwd)) score++
-    if (/[0-9]/.test(pwd)) score++
-    if (/[^A-Za-z0-9]/.test(pwd)) score++
+    if (pwd.length >= 8)           score++
+    if (pwd.length >= 12)          score++
+    if (/[A-Z]/.test(pwd))         score++
+    if (/[0-9]/.test(pwd))         score++
+    if (/[^A-Za-z0-9]/.test(pwd))  score++
     if (score <= 1) return { score, label: 'Muito fraca', color: 'bg-red-500' }
-    if (score === 2) return { score, label: 'Fraca', color: 'bg-orange-500' }
-    if (score === 3) return { score, label: 'Razoável', color: 'bg-yellow-500' }
-    if (score === 4) return { score, label: 'Boa', color: 'bg-blue-500' }
+    if (score === 2) return { score, label: 'Fraca',      color: 'bg-orange-500' }
+    if (score === 3) return { score, label: 'Razoável',   color: 'bg-yellow-500' }
+    if (score === 4) return { score, label: 'Boa',        color: 'bg-blue-500' }
     return { score, label: 'Forte', color: 'bg-green-500' }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     const validationErrors = validate()
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors)
-      return
-    }
+    if (Object.keys(validationErrors).length > 0) { setErrors(validationErrors); return }
     setErrors({})
     setLoading(true)
 
-    try {
-      signUp({
-        firstName: formData.firstName,
-        lastName: formData.lastName,
-        email: formData.email,
-        password: formData.password,
-        instrument: formData.instrument || undefined,
-      })
-      refresh()
-      router.push('/dashboard')
-    } catch (err) {
-      setErrors({
-        form: err instanceof Error ? err.message : 'Erro ao criar conta. Tente novamente.',
-      })
+    const { error } = await supabase.auth.signUp({
+      email:    formData.email,
+      password: formData.password,
+      options: {
+        data: {
+          firstName:  formData.firstName.trim(),
+          lastName:   formData.lastName.trim(),
+          instrument: formData.instrument || undefined,
+          role:       'professor',
+        },
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    })
+
+    if (error) {
+      setErrors({ form: error.message.includes('already registered')
+        ? 'Este e-mail já está cadastrado. Faça login.'
+        : 'Erro ao criar conta. Tente novamente.' })
       setLoading(false)
+      return
+    }
+
+    // Redirect to email verification pending page
+    router.push(`/auth/verify?email=${encodeURIComponent(formData.email)}`)
+  }
+
+  async function handleGoogle() {
+    setGoogleLoading(true)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    })
+    if (error) {
+      setErrors({ form: 'Erro ao conectar com o Google. Tente novamente.' })
+      setGoogleLoading(false)
     }
   }
 
@@ -161,22 +164,15 @@ export default function SignupForm() {
             <div className="mt-2 space-y-1">
               <div className="flex gap-1">
                 {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    className={`h-1.5 flex-1 rounded-full transition-colors ${i <= strength.score ? strength.color : 'bg-gray-200'}`}
-                  />
+                  <div key={i} className={`h-1.5 flex-1 rounded-full transition-colors ${i <= strength.score ? strength.color : 'bg-gray-200'}`} />
                 ))}
               </div>
               <p className="text-xs text-gray-500">Força da senha: <span className="font-medium">{strength.label}</span></p>
             </div>
           )
         })()}
-        {!errors.password && !formData.password && (
-          <p className="mt-1.5 text-xs text-gray-400">Mín. 8 caracteres, 1 maiúscula e 1 número</p>
-        )}
       </div>
 
-      {/* Instrument */}
       <div>
         <label className="mb-1.5 block text-sm font-medium text-gray-700">
           Instrumento principal{' '}
@@ -188,15 +184,10 @@ export default function SignupForm() {
           className="block w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-900 shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
         >
           <option value="">Selecione seu instrumento…</option>
-          {instruments.map((i) => (
-            <option key={i} value={i}>
-              {i}
-            </option>
-          ))}
+          {instruments.map((i) => <option key={i} value={i}>{i}</option>)}
         </select>
       </div>
 
-      {/* Terms */}
       <div>
         <div className="flex items-start gap-2.5">
           <input
@@ -208,13 +199,9 @@ export default function SignupForm() {
           />
           <label htmlFor="terms" className="text-sm text-gray-500">
             Concordo com os{' '}
-            <a href="#" className="text-blue-600 hover:underline">
-              Termos de Uso
-            </a>{' '}
-            e com a{' '}
-            <a href="#" className="text-blue-600 hover:underline">
-              Política de Privacidade
-            </a>
+            <a href="#" className="text-blue-600 hover:underline">Termos de Uso</a>
+            {' '}e com a{' '}
+            <a href="#" className="text-blue-600 hover:underline">Política de Privacidade</a>
           </label>
         </div>
         {errors.agreeToTerms && (
@@ -223,7 +210,7 @@ export default function SignupForm() {
       </div>
 
       <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full">
-        {loading ? 'Criando seu estúdio…' : 'Criar conta grátis'}
+        {loading ? 'Criando sua conta…' : 'Criar conta grátis'}
       </Button>
 
       <div className="relative">
@@ -237,10 +224,16 @@ export default function SignupForm() {
 
       <button
         type="button"
-        className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50"
+        onClick={handleGoogle}
+        disabled={googleLoading}
+        className="flex w-full items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-700 shadow-sm transition-colors hover:bg-gray-50 disabled:opacity-60"
       >
-        <GoogleIcon />
-        Google
+        {googleLoading ? (
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+        ) : (
+          <GoogleIcon />
+        )}
+        {googleLoading ? 'Redirecionando…' : 'Google'}
       </button>
     </form>
   )
