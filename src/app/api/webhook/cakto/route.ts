@@ -15,8 +15,9 @@
  *   4. x-token
  *   5. authorization  (stripped of "Bearer " prefix if present)
  *
- * Debug logs (safe for production — no full secrets exposed):
- *   [Cakto webhook] shows which header matched and basic request info.
+ * ─── DEBUG BYPASS ────────────────────────────────────────────────────────────
+ * Set CAKTO_WEBHOOK_DEBUG_BYPASS=true in Vercel env vars to skip signature
+ * validation entirely. Use ONLY for temporary debugging — never leave on.
  *
  * ─── TODO (Supabase) ─────────────────────────────────────────────────────────
  * Replace activationStore.set() with:
@@ -32,6 +33,9 @@ import {
   type CaktoWebhookPayload,
   type PendingActivation,
 } from '@/lib/billing/cakto'
+
+// ─── Debug bypass (controlled by env var — off by default) ───────────────────
+const DEBUG_BYPASS = process.env.CAKTO_WEBHOOK_DEBUG_BYPASS === 'true'
 
 // ─── Candidate headers Cakto may use to carry the secret ─────────────────────
 const SIGNATURE_HEADERS = [
@@ -52,43 +56,62 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0
 }
 
+// ─── Truncate value for safe logging (never expose full secrets) ──────────────
+function truncate(value: string, maxShow = 8): string {
+  if (value.length <= maxShow) return value
+  return `${value.slice(0, maxShow)}…(${value.length} chars total)`
+}
+
 // ─── Validate the incoming request against the configured secret ──────────────
 function validateRequest(req: NextRequest): {
   valid: boolean
+  reason: string
   matchedHeader: string | null
-  debugInfo: Record<string, string>
+  allHeaders: Record<string, string>
 } {
   const secret = CAKTO_CONFIG.webhookSecret
 
-  // Build a safe debug map: header name → truncated value (never expose full secret)
-  const debugInfo: Record<string, string> = {}
+  // Collect ALL headers for debug logging (values truncated for safety)
+  const allHeaders: Record<string, string> = {}
   req.headers.forEach((value, key) => {
-    debugInfo[key] = value.length > 24
-      ? `${value.slice(0, 8)}…(${value.length} chars)`
-      : value
+    allHeaders[key] = truncate(value)
   })
 
-  if (!secret) {
-    // No secret configured → skip validation (useful during initial setup)
-    return { valid: true, matchedHeader: null, debugInfo }
+  // ── Debug bypass ──────────────────────────────────────────────────────────
+  if (DEBUG_BYPASS) {
+    return { valid: true, reason: 'DEBUG_BYPASS=true — validation skipped', matchedHeader: null, allHeaders }
   }
 
+  // ── No secret configured → accept all (useful during initial setup) ───────
+  if (!secret) {
+    return { valid: true, reason: 'no secret configured — skipping validation', matchedHeader: null, allHeaders }
+  }
+
+  // ── Check each candidate header in order ─────────────────────────────────
   for (const headerName of SIGNATURE_HEADERS) {
     let headerValue = req.headers.get(headerName) ?? ''
 
-    // Strip "Bearer " prefix if present (handles Authorization header)
+    // Strip "Bearer " prefix (handles Authorization header)
     if (headerName === 'authorization' && headerValue.toLowerCase().startsWith('bearer ')) {
       headerValue = headerValue.slice(7).trim()
     }
 
     if (!headerValue) continue
 
-    if (safeEqual(headerValue, secret)) {
-      return { valid: true, matchedHeader: headerName, debugInfo }
+    const matches = safeEqual(headerValue, secret)
+
+    // Log each candidate so we can diagnose mismatches from Vercel logs
+    console.info(
+      `[Cakto webhook] Checking header "${headerName}": present=true, length=${headerValue.length}, ` +
+      `secret_length=${secret.length}, match=${matches}`
+    )
+
+    if (matches) {
+      return { valid: true, reason: `matched header "${headerName}"`, matchedHeader: headerName, allHeaders }
     }
   }
 
-  return { valid: false, matchedHeader: null, debugInfo }
+  return { valid: false, reason: `none of [${SIGNATURE_HEADERS.join(', ')}] matched the secret`, matchedHeader: null, allHeaders }
 }
 
 // ─── Approved-event handler ───────────────────────────────────────────────────
@@ -147,56 +170,67 @@ function handleRefund(payload: CaktoWebhookPayload): NextResponse {
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const secret = CAKTO_CONFIG.webhookSecret
 
-  // ── Debug: secret presence (never log the full value) ──────────────────────
+  // ── 1. Secret presence check ────────────────────────────────────────────────
   console.info(
-    `[Cakto webhook] Incoming request — secret configured: ${secret ? `yes (${secret.length} chars, starts "${secret.slice(0, 4)}…")` : 'NO — skipping validation'}`
+    `[Cakto webhook] ── Incoming request ──────────────────────────────────────`
+  )
+  console.info(
+    `[Cakto webhook] Secret configured: ${secret
+      ? `YES (${secret.length} chars, starts "${secret.slice(0, 4)}…")`
+      : 'NO — validation will be skipped'
+    }`
+  )
+  console.info(
+    `[Cakto webhook] Debug bypass: ${DEBUG_BYPASS ? 'ENABLED ⚠️' : 'disabled'}`
   )
 
-  // ── Read raw body BEFORE any other processing ───────────────────────────────
-  // (body must be read as text; once consumed it cannot be re-read)
+  // ── 2. Read raw body ─────────────────────────────────────────────────────────
   let rawBody: string
   try {
     rawBody = await req.text()
   } catch {
-    console.error('[Cakto webhook] Failed to read request body.')
+    console.error('[Cakto webhook] ❌ Failed to read request body.')
     return NextResponse.json({ error: 'Cannot read body' }, { status: 400 })
   }
 
-  console.info(`[Cakto webhook] Body length: ${rawBody.length} chars`)
+  console.info(`[Cakto webhook] Body: ${rawBody.length} chars, starts: ${rawBody.slice(0, 60)}`)
 
-  // ── Validate signature ──────────────────────────────────────────────────────
-  const { valid, matchedHeader, debugInfo } = validateRequest(req)
+  // ── 3. Log ALL incoming headers ──────────────────────────────────────────────
+  // Shows exactly what CaktoBot/1.0 sends — safe (values truncated)
+  const { valid, reason, matchedHeader, allHeaders } = validateRequest(req)
 
-  // Log header names + truncated values (safe for production)
-  console.info('[Cakto webhook] Request headers:', JSON.stringify(debugInfo))
+  console.info(`[Cakto webhook] All headers received: ${JSON.stringify(allHeaders)}`)
+  console.info(`[Cakto webhook] Signature headers present:`)
+  for (const h of SIGNATURE_HEADERS) {
+    const val = req.headers.get(h)
+    console.info(`  ${h}: ${val ? `"${truncate(val)}"` : '(absent)'}`)
+  }
 
+  // ── 4. Validation result ────────────────────────────────────────────────────
   if (!valid) {
-    console.warn(
-      `[Cakto webhook] ❌ Signature invalid — none of [${SIGNATURE_HEADERS.join(', ')}] matched the secret.`
-    )
+    console.warn(`[Cakto webhook] ❌ Rejected — ${reason}`)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
   if (matchedHeader) {
-    console.info(`[Cakto webhook] ✅ Signature valid — matched via header "${matchedHeader}"`)
+    console.info(`[Cakto webhook] ✅ Accepted — ${reason}`)
   } else {
-    console.info('[Cakto webhook] ✅ Signature check skipped (no secret configured)')
+    console.info(`[Cakto webhook] ✅ Accepted — ${reason}`)
   }
 
-  // ── Parse payload ───────────────────────────────────────────────────────────
+  // ── 5. Parse payload ─────────────────────────────────────────────────────────
   let payload: CaktoWebhookPayload
   try {
     payload = JSON.parse(rawBody)
   } catch {
-    console.error('[Cakto webhook] Body is not valid JSON.')
+    console.error('[Cakto webhook] ❌ Body is not valid JSON.')
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
   const event = payload.event ?? ''
   console.info(`[Cakto webhook] Event type: "${event}"`)
 
-  // ── Route by event type ─────────────────────────────────────────────────────
-  // Covers all known Cakto event naming conventions
+  // ── 6. Route by event type ───────────────────────────────────────────────────
   if (
     event === 'purchase.approved' ||
     event === 'order.approved'    ||
