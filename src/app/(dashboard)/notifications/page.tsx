@@ -51,7 +51,7 @@ export default function NotificationsPage() {
   const activity = notifications.filter((n) => !alertTypes.includes(n.type))
 
   return (
-    <div className="p-6 lg:p-8 animate-in">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in">
       {/* Header */}
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

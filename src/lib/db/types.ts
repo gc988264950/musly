@@ -157,16 +157,18 @@ export interface Lesson {
   performanceTags: string[]   // e.g. ['difficulty', 'evolved'] — set during lesson mode
   homework: string            // '' when not set
   homeworkSentAt: string | null  // ISO date when homework was sent; null = not sent
+  homeworkCompleted: boolean  // true when student marks homework as done
   // Back-reference to the recurring schedule that generated this lesson ('' = manual)
   scheduleGroupId: string
   createdAt: string
   updatedAt: string
 }
 
-export type CreateLessonInput = Omit<Lesson, 'id' | 'createdAt' | 'updatedAt' | 'performanceTags' | 'homework' | 'homeworkSentAt' | 'scheduleGroupId'> & {
+export type CreateLessonInput = Omit<Lesson, 'id' | 'createdAt' | 'updatedAt' | 'performanceTags' | 'homework' | 'homeworkSentAt' | 'homeworkCompleted' | 'scheduleGroupId'> & {
   performanceTags?: string[]
   homework?: string
   homeworkSentAt?: string | null
+  homeworkCompleted?: boolean
   scheduleGroupId?: string
 }
 export type UpdateLessonInput = Partial<Omit<CreateLessonInput, 'teacherId'>>

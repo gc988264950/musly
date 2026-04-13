@@ -137,7 +137,7 @@ export default function DashboardPage() {
 
   // ────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 lg:p-8 animate-in">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in">
       {/* Header */}
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -243,7 +243,7 @@ export default function DashboardPage() {
                 Ver detalhes <ArrowUpRight className="h-3.5 w-3.5" />
               </Link>
             </div>
-            <div className="grid grid-cols-3 divide-x divide-gray-100 px-0 py-0">
+            <div className="grid grid-cols-1 divide-y divide-gray-100 sm:grid-cols-3 sm:divide-x sm:divide-y-0 px-0 py-0">
               {/* Expected */}
               <div className="flex items-center gap-3 px-6 py-4">
                 <div className="rounded-xl bg-blue-50 p-2.5">

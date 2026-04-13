@@ -175,7 +175,7 @@ function PlansContent() {
   }
 
   return (
-    <div className="p-6 lg:p-8 animate-in">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in">
 
       {/* Header */}
       <div className="mb-8 text-center">

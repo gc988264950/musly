@@ -210,7 +210,7 @@ export default function BillingPage() {
   const studentsWithSettings = rows.filter((r) => r.financial !== null)
 
   return (
-    <div className="p-6 lg:p-8 animate-in">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in">
       {/* Header */}
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>

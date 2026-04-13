@@ -82,7 +82,7 @@ export default function ProgressPage() {
 
   if (students.length === 0) {
     return (
-      <div className="p-6 lg:p-8 animate-in">
+      <div className="p-4 sm:p-6 lg:p-8 animate-in">
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Progresso</h1>
           <p className="mt-0.5 text-sm text-gray-500">Acompanhe a evolução de todos os alunos</p>
@@ -100,7 +100,7 @@ export default function ProgressPage() {
   const withProgress = rows.filter((r) => r.progress !== null)
 
   return (
-    <div className="p-6 lg:p-8 animate-in">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in">
       {/* Header */}
       <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>

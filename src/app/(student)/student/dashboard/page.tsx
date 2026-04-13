@@ -13,10 +13,12 @@ import {
   CreditCard,
   PhoneCall,
   CheckCircle2,
+  CheckSquare,
+  Square,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStudentById } from '@/lib/db/students'
-import { getLessonsByStudent } from '@/lib/db/lessons'
+import { getLessonsByStudent, updateHomeworkCompleted } from '@/lib/db/lessons'
 import { getStudentFiles } from '@/lib/db/studentFiles'
 import { getFinancialByStudent } from '@/lib/db/financial'
 import { getPaymentForStudentMonth, computeStatusForMonth, getDueDateForMonth } from '@/lib/db/payments'
@@ -28,6 +30,12 @@ import type { Student, Lesson, StudentFinancial, Payment } from '@/lib/db/types'
 function currentYearMonth(): string {
   const now = new Date()
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
+function normalizeUrl(url: string): string {
+  if (!url) return url
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  return 'https://' + url
 }
 
 function formatCurrency(value: number): string {
@@ -66,6 +74,7 @@ export default function StudentDashboardPage() {
   const [recentHomework, setRecentHomework] = useState<Lesson[]>([])
   const [filesCount, setFilesCount] = useState(0)
   const [billing, setBilling] = useState<BillingInfo | null>(null)
+  const [togglingHomework, setTogglingHomework] = useState<string | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
 
@@ -112,6 +121,20 @@ export default function StudentDashboardPage() {
   }, [linkedStudentId])
 
   const nextLesson = upcomingLessons[0] ?? null
+
+  async function toggleHomework(lesson: Lesson) {
+    if (!lesson.homework) return
+    setTogglingHomework(lesson.id)
+    const next = !lesson.homeworkCompleted
+    setRecentHomework((prev) => prev.map((l) => l.id === lesson.id ? { ...l, homeworkCompleted: next } : l))
+    try {
+      await updateHomeworkCompleted(lesson.id, next)
+    } catch {
+      setRecentHomework((prev) => prev.map((l) => l.id === lesson.id ? { ...l, homeworkCompleted: !next } : l))
+    } finally {
+      setTogglingHomework(null)
+    }
+  }
 
   if (!student) {
     return (
@@ -161,7 +184,7 @@ export default function StudentDashboardPage() {
   const billingText = getBillingDynamicText()
 
   return (
-    <div className="p-6 lg:p-8 animate-in space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in space-y-5">
       {/* Greeting */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">
@@ -297,7 +320,7 @@ export default function StudentDashboardPage() {
             <div className="flex flex-wrap gap-2 mt-3">
               {billing.financial.paymentLink && (
                 <a
-                  href={billing.financial.paymentLink}
+                  href={normalizeUrl(billing.financial.paymentLink)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
@@ -308,7 +331,7 @@ export default function StudentDashboardPage() {
               )}
               {billing.financial.contactLink && (
                 <a
-                  href={billing.financial.contactLink}
+                  href={normalizeUrl(billing.financial.contactLink)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
@@ -331,13 +354,47 @@ export default function StudentDashboardPage() {
               Tarefas de Casa
             </span>
           </div>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {recentHomework.map((lesson) => (
-              <div key={lesson.id} className="rounded-xl border border-[#b0d2ff]/40 bg-[#eef5ff] px-4 py-3">
-                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">
-                  Aula de {new Date(lesson.date + 'T00:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
-                </p>
-                <p className="text-sm text-gray-800 whitespace-pre-wrap">{lesson.homework}</p>
+              <div
+                key={lesson.id}
+                className={cn(
+                  'rounded-xl border px-4 py-3 transition-colors',
+                  lesson.homeworkCompleted
+                    ? 'border-green-200 bg-green-50'
+                    : 'border-[#b0d2ff]/40 bg-[#eef5ff]'
+                )}
+              >
+                <div className="flex items-start gap-2.5">
+                  <button
+                    onClick={() => toggleHomework(lesson)}
+                    disabled={togglingHomework === lesson.id}
+                    className={cn(
+                      'mt-0.5 flex-shrink-0 transition-opacity',
+                      togglingHomework === lesson.id ? 'opacity-40' : 'hover:opacity-70'
+                    )}
+                    aria-label={lesson.homeworkCompleted ? 'Desfazer conclusão' : 'Marcar como concluída'}
+                  >
+                    {lesson.homeworkCompleted
+                      ? <CheckSquare size={16} className="text-green-600" />
+                      : <Square size={16} className="text-[#1a7cfa]" />
+                    }
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={cn(
+                      'mb-1 text-[10px] font-medium uppercase tracking-wide',
+                      lesson.homeworkCompleted ? 'text-green-600' : 'text-gray-400'
+                    )}>
+                      {lesson.homeworkCompleted ? '✓ Concluída · ' : ''}Aula de {new Date(lesson.date + 'T00:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
+                    </p>
+                    <p className={cn(
+                      'text-sm whitespace-pre-wrap leading-relaxed',
+                      lesson.homeworkCompleted ? 'text-green-800 line-through opacity-70' : 'text-gray-800'
+                    )}>
+                      {lesson.homework}
+                    </p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>

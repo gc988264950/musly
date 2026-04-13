@@ -405,7 +405,7 @@ export default function LessonModePage() {
   // ── Active lesson screen ──────────────────────────────────────────────────
   return (
     <>
-      <div className="p-6 lg:p-8 animate-in">
+      <div className="p-4 sm:p-6 lg:p-8 animate-in">
         <div className="mx-auto max-w-2xl space-y-4">
 
           {/* Top bar */}
@@ -433,7 +433,7 @@ export default function LessonModePage() {
               <Radio className="h-3.5 w-3.5 text-green-500" />
               Tempo de aula
             </p>
-            <p className="text-6xl font-bold tabular-nums text-gray-900 tracking-tight">
+            <p className="text-5xl sm:text-6xl font-bold tabular-nums text-gray-900 tracking-tight">
               {formatTimer(elapsed)}
             </p>
             {startedAt && (
@@ -548,41 +548,69 @@ export default function LessonModePage() {
             {showPlanEditor && (
               <div className="border-t border-gray-100 px-5 pb-5 pt-4 space-y-4">
                 {/* Esta aula */}
-                {[
-                  { label: '🎯 Objetivo da aula', value: planObjective, onChange: setPlanObjective, placeholder: 'O que o aluno vai aprender ou praticar hoje?' },
-                  { label: '📚 Conteúdo', value: planContent, onChange: setPlanContent, placeholder: 'Repertório, teoria, técnica…' },
-                  { label: '🏋️ Exercícios', value: planExercises, onChange: setPlanExercises, placeholder: 'Exercícios, escalas, estudos…' },
-                  { label: '📝 Observações', value: planObservations, onChange: setPlanObservations, placeholder: 'Anotações pedagógicas, pontos de atenção…' },
-                ].map(({ label, value, onChange, placeholder }) => (
-                  <div key={label}>
-                    <label className="mb-1.5 block text-xs font-semibold text-gray-600">{label}</label>
-                    <textarea
-                      rows={2}
-                      value={value}
-                      onChange={(e) => onChange(e.target.value)}
-                      placeholder={placeholder}
-                      className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
-                  </div>
-                ))}
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-gray-600">🎯 Objetivo da aula</label>
+                  <textarea
+                    rows={2}
+                    value={planObjective}
+                    onChange={(e) => setPlanObjective(e.target.value)}
+                    placeholder="O que o aluno vai aprender ou praticar hoje?"
+                    className="block w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-gray-600">📚 Conteúdo</label>
+                  <textarea
+                    rows={5}
+                    value={planContent}
+                    onChange={(e) => setPlanContent(e.target.value)}
+                    placeholder="Repertório, teoria, técnica — descreva o conteúdo da aula com detalhes…"
+                    className="block w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm leading-relaxed placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-gray-600">🏋️ Exercícios</label>
+                  <textarea
+                    rows={3}
+                    value={planExercises}
+                    onChange={(e) => setPlanExercises(e.target.value)}
+                    placeholder="Exercícios, escalas, estudos…"
+                    className="block w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-gray-600">📝 Observações</label>
+                  <textarea
+                    rows={2}
+                    value={planObservations}
+                    onChange={(e) => setPlanObservations(e.target.value)}
+                    placeholder="Anotações pedagógicas, pontos de atenção…"
+                    className="block w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
                 {/* Continuidade */}
                 <div className="border-t border-gray-100 pt-3">
                   <p className="mb-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">Continuidade</p>
-                  {[
-                    { label: '⏳ O que ficou pendente', value: planPending, onChange: setPlanPending, placeholder: 'Conteúdo ou exercícios que não foram concluídos…' },
-                    { label: '➡️ Próxima aula', value: planNextLesson, onChange: setPlanNextLesson, placeholder: 'O que deve acontecer na próxima aula…' },
-                  ].map(({ label, value, onChange, placeholder }) => (
-                    <div key={label} className="mb-3 last:mb-0">
-                      <label className="mb-1.5 block text-xs font-semibold text-gray-600">{label}</label>
-                      <textarea
-                        rows={2}
-                        value={value}
-                        onChange={(e) => onChange(e.target.value)}
-                        placeholder={placeholder}
-                        className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      />
-                    </div>
-                  ))}
+                  <div className="mb-3">
+                    <label className="mb-1.5 block text-xs font-semibold text-gray-600">⏳ O que ficou pendente</label>
+                    <textarea
+                      rows={2}
+                      value={planPending}
+                      onChange={(e) => setPlanPending(e.target.value)}
+                      placeholder="Conteúdo ou exercícios que não foram concluídos…"
+                      className="block w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-semibold text-gray-600">➡️ Próxima aula</label>
+                    <textarea
+                      rows={2}
+                      value={planNextLesson}
+                      onChange={(e) => setPlanNextLesson(e.target.value)}
+                      placeholder="O que deve acontecer na próxima aula…"
+                      className="block w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 justify-end">
                   {planSaved && (

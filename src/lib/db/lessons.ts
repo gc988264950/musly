@@ -17,8 +17,9 @@ function fromRow(r: any): Lesson {
     notes:           r.notes           ?? '',
     status:          r.status          ?? 'agendada',
     performanceTags: r.performance_tags ?? [],
-    homework:        r.homework        ?? '',
-    homeworkSentAt:  r.homework_sent_at ?? null,
+    homework:          r.homework           ?? '',
+    homeworkSentAt:    r.homework_sent_at   ?? null,
+    homeworkCompleted: r.homework_completed ?? false,
     scheduleGroupId: r.schedule_group_id ?? '',
     createdAt:       r.created_at,
     updatedAt:       r.updated_at,
@@ -37,10 +38,11 @@ function toRow(l: Lesson) {
     topic:             l.topic,
     notes:             l.notes,
     status:            l.status,
-    performance_tags:  l.performanceTags,
-    homework:          l.homework,
-    homework_sent_at:  l.homeworkSentAt,
-    schedule_group_id: l.scheduleGroupId,
+    performance_tags:   l.performanceTags,
+    homework:           l.homework,
+    homework_sent_at:   l.homeworkSentAt,
+    homework_completed: l.homeworkCompleted,
+    schedule_group_id:  l.scheduleGroupId,
     created_at:        l.createdAt,
     updated_at:        l.updatedAt,
   }
@@ -118,6 +120,15 @@ export async function updateLesson(lesson: Lesson): Promise<void> {
   if (error) throw error
 }
 
+export async function updateHomeworkCompleted(id: string, completed: boolean): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('lessons')
+    .update({ homework_completed: completed, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+}
+
 export async function deleteLesson(id: string): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.from('lessons').delete().eq('id', id)
@@ -133,10 +144,11 @@ export function buildLesson(
   const now = new Date().toISOString()
   return {
     id,
-    performanceTags: [],
-    homework:        '',
-    homeworkSentAt:  null,
-    scheduleGroupId: '',
+    performanceTags:   [],
+    homework:          '',
+    homeworkSentAt:    null,
+    homeworkCompleted: false,
+    scheduleGroupId:   '',
     ...data,
     createdAt: now,
     updatedAt: now,

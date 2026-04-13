@@ -593,7 +593,7 @@ export default function LessonsPage() {
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-6 lg:p-8 animate-in">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>

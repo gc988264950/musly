@@ -42,6 +42,12 @@ import { cn, getInitials } from '@/lib/utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+function normalizeUrl(url: string): string {
+  if (!url) return url
+  if (url.startsWith('http://') || url.startsWith('https://')) return url
+  return 'https://' + url
+}
+
 function formatDate(iso: string) {
   return new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR', {
     weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
@@ -388,7 +394,7 @@ function TabOverview({ profile }: { profile: ReturnType<typeof useStudentProfile
               </button>
               {financial.paymentLink && (
                 <a
-                  href={financial.paymentLink}
+                  href={normalizeUrl(financial.paymentLink)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
@@ -398,7 +404,7 @@ function TabOverview({ profile }: { profile: ReturnType<typeof useStudentProfile
               )}
               {financial.contactLink && (
                 <a
-                  href={financial.contactLink}
+                  href={normalizeUrl(financial.contactLink)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
@@ -599,16 +605,32 @@ function TabHistory({ profile }: { profile: ReturnType<typeof useStudentProfile>
                       </div>
                     </div>
                   ) : (
-                    <div className="mt-2 pl-5">
+                    <div className="mt-2 pl-5 space-y-2">
                       {lesson.notes ? (
                         <p className="text-xs text-gray-500 leading-relaxed">{lesson.notes}</p>
                       ) : null}
                       <button
                         onClick={() => { setNotesDraft(lesson.notes); setEditingNotes(lesson.id) }}
-                        className="mt-1 text-xs text-blue-500 hover:text-blue-700"
+                        className="text-xs text-blue-500 hover:text-blue-700"
                       >
                         {lesson.notes ? 'Editar anotações' : '+ Adicionar anotações'}
                       </button>
+                      {lesson.homework && (
+                        <div className={cn(
+                          'rounded-lg border px-3 py-2',
+                          lesson.homeworkCompleted
+                            ? 'border-green-200 bg-green-50'
+                            : 'border-amber-200 bg-amber-50'
+                        )}>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <BookOpen className={cn('h-3 w-3', lesson.homeworkCompleted ? 'text-green-600' : 'text-amber-600')} />
+                            <span className={cn('text-[10px] font-bold uppercase tracking-wide', lesson.homeworkCompleted ? 'text-green-600' : 'text-amber-600')}>
+                              Tarefa de casa {lesson.homeworkCompleted ? '— Concluída ✓' : '— Pendente'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{lesson.homework}</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -872,14 +894,17 @@ function TabNotes({ profile }: { profile: ReturnType<typeof useStudentProfile> }
     <div className="space-y-4">
       {/* Add note */}
       <div className="rounded-2xl border border-gray-100 bg-white p-5">
-        <h3 className="mb-3 font-semibold text-gray-900">Nova anotação</h3>
+        <div className="flex items-center gap-2 mb-3">
+          <StickyNote className="h-4 w-4 text-[#1a7cfa]" />
+          <h3 className="font-semibold text-gray-900">Nova anotação</h3>
+        </div>
         <textarea
           ref={textareaRef}
           rows={3}
           value={newContent}
           onChange={(e) => setNewContent(e.target.value)}
           placeholder="Escreva uma anotação sobre a aula ou sobre o aluno…"
-          className="block w-full resize-none rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          className="block w-full resize-y rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
         />
         <div className="mt-3 flex justify-end">
           <Button variant="primary" loading={adding} onClick={handleAdd} disabled={!newContent.trim()}>
@@ -890,64 +915,80 @@ function TabNotes({ profile }: { profile: ReturnType<typeof useStudentProfile> }
 
       {/* Notes list */}
       {notes.length === 0 ? (
-        <div className="rounded-2xl border border-gray-100 bg-white py-10 text-center">
-          <StickyNote className="mx-auto h-8 w-8 text-gray-300" />
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-10 text-center">
+          <StickyNote className="mx-auto h-8 w-8 text-gray-200" />
           <p className="mt-2 text-sm text-gray-400">Nenhuma anotação ainda.</p>
+          <p className="mt-0.5 text-xs text-gray-300">Suas anotações ficam visíveis apenas para você.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {notes.map((note) => (
-            <div key={note.id} className="group rounded-2xl border border-gray-100 bg-white p-5">
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <p className="text-xs text-gray-400">{formatDateTime(note.createdAt)}</p>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => startEdit(note)}
-                    className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
-                    aria-label="Editar"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteTarget(note)}
-                    className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                    aria-label="Excluir"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {editingId === note.id ? (
-                <div>
-                  <textarea
-                    rows={3}
-                    value={editDraft}
-                    onChange={(e) => setEditDraft(e.target.value)}
-                    className="block w-full resize-none rounded-xl border border-blue-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    autoFocus
-                  />
-                  <div className="mt-2 flex gap-2">
-                    <button
-                      onClick={() => saveEdit(note.id)}
-                      className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                    >
-                      <Check className="h-3 w-3" /> Salvar
-                    </button>
-                    <button
-                      onClick={() => setEditingId(null)}
-                      className="rounded-lg px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100"
-                    >
-                      Cancelar
-                    </button>
+        <>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+            {notes.length} anotaç{notes.length !== 1 ? 'ões' : 'ão'}
+          </p>
+          <div className="space-y-2">
+            {notes.map((note, idx) => {
+              const accentColors = [
+                'border-l-[#1a7cfa]',
+                'border-l-violet-400',
+                'border-l-emerald-400',
+                'border-l-amber-400',
+                'border-l-pink-400',
+              ]
+              const accent = accentColors[idx % accentColors.length]
+              return (
+                <div key={note.id} className={cn('group rounded-2xl border border-gray-100 bg-white border-l-4 p-4', accent)}>
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <p className="text-[11px] font-medium text-gray-400">{formatDateTime(note.createdAt)}</p>
+                    <div className="flex gap-1 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => startEdit(note)}
+                        className="rounded-lg p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
+                        aria-label="Editar"
+                      >
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(note)}
+                        className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                        aria-label="Excluir"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
+
+                  {editingId === note.id ? (
+                    <div>
+                      <textarea
+                        rows={3}
+                        value={editDraft}
+                        onChange={(e) => setEditDraft(e.target.value)}
+                        className="block w-full resize-y rounded-xl border border-blue-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                        autoFocus
+                      />
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          onClick={() => saveEdit(note.id)}
+                          className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                        >
+                          <Check className="h-3 w-3" /> Salvar
+                        </button>
+                        <button
+                          onClick={() => setEditingId(null)}
+                          className="rounded-lg px-2 py-1.5 text-xs text-gray-500 hover:bg-gray-100"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{note.content}</p>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{note.content}</p>
-              )}
-            </div>
-          ))}
-        </div>
+              )
+            })}
+          </div>
+        </>
       )}
 
       <ConfirmDialog
@@ -1791,7 +1832,7 @@ function TabFinanceiro({ profile }: { profile: ReturnType<typeof useStudentProfi
               <div className="mt-4 flex flex-wrap gap-2">
                 {financial.paymentLink && (
                   <a
-                    href={financial.paymentLink}
+                    href={normalizeUrl(financial.paymentLink)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 rounded-lg bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100"
@@ -1801,7 +1842,7 @@ function TabFinanceiro({ profile }: { profile: ReturnType<typeof useStudentProfi
                 )}
                 {financial.contactLink && (
                   <a
-                    href={financial.contactLink}
+                    href={normalizeUrl(financial.contactLink)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100"
@@ -1910,7 +1951,7 @@ function TabFinanceiro({ profile }: { profile: ReturnType<typeof useStudentProfi
             )}
             {financial.paymentLink && currentStatus !== 'pago' && (
               <a
-                href={financial.paymentLink}
+                href={normalizeUrl(financial.paymentLink)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
@@ -1920,7 +1961,7 @@ function TabFinanceiro({ profile }: { profile: ReturnType<typeof useStudentProfi
             )}
             {financial.contactLink && (
               <a
-                href={financial.contactLink}
+                href={normalizeUrl(financial.contactLink)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
@@ -2786,7 +2827,7 @@ export default function StudentProfilePage() {
     .sort((a, b) => a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date))[0] ?? null
 
   return (
-    <div className="p-6 lg:p-8 animate-in">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in">
       {/* Back + header */}
       <div className="mb-6">
         <Link
@@ -2855,7 +2896,7 @@ export default function StudentProfilePage() {
       )}
 
       {/* Tabs */}
-      <div className="mb-6 flex gap-1 overflow-x-auto border-b border-gray-100 pb-px">
+      <div className="mb-6 flex gap-0.5 overflow-x-auto border-b border-gray-100 pb-px [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
         {TABS.filter((tab) => {
           if (tab.id !== 'planejamento') return true
           // Only show planning tab if student has scheduled lessons or an active contract
@@ -2870,7 +2911,7 @@ export default function StudentProfilePage() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'flex items-center gap-1.5 whitespace-nowrap rounded-t-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-1.5 whitespace-nowrap rounded-t-lg px-3 py-2.5 text-xs sm:px-4 sm:text-sm font-medium transition-colors',
                 isActive
                   ? 'border-b-2 border-blue-600 text-blue-600'
                   : 'text-gray-500 hover:text-gray-700'

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
@@ -8,6 +8,13 @@ const inter = Inter({
   variable: '--font-inter',
   display: 'swap',
 })
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  // Prevents iOS auto-zoom on input focus without disabling manual zoom
+  // The real fix is input font-size ≥ 16px (see globals.css)
+}
 
 export const metadata: Metadata = {
   title: {

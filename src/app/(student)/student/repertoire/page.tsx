@@ -36,7 +36,7 @@ export default function StudentRepertoirePage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 animate-in space-y-6">
+    <div className="p-4 sm:p-6 lg:p-8 animate-in space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Repertório</h1>
         <p className="mt-0.5 text-sm text-gray-500">
