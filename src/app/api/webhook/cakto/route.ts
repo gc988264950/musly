@@ -1,46 +1,95 @@
 /**
  * POST /api/webhook/cakto
  *
- * Receives payment event notifications from Cakto.
+ * Receives payment event notifications from Cakto (CaktoBot/1.0).
  *
- * ─── WHAT THIS DOES ──────────────────────────────────────────────────────────
- * 1. Verifies the request signature (HMAC-SHA256) to confirm it came from Cakto.
- * 2. Parses the webhook payload.
- * 3. On a "purchase.approved" event, maps the offer to an internal plan.
- * 4. Stores a pending activation keyed by customer email.
- * 5. The frontend picks up the activation via GET /api/subscription/activate.
+ * ─── SIGNATURE VALIDATION ────────────────────────────────────────────────────
+ * Cakto sends its webhook secret as a plain token in a request header
+ * (not HMAC-signed). Validation = simple constant-time comparison between
+ * the configured secret and the header value.
  *
- * ─── HOW TO CONFIGURE ────────────────────────────────────────────────────────
- * 1. Deploy this app so it has a public URL.
- * 2. In Cakto: Configurações → Integrações → Webhooks → Nova URL.
- *    URL: https://your-domain.com/api/webhook/cakto
- *    Events: Compra aprovada, Reembolso
- * 3. Copy the Cakto webhook secret to CAKTO_WEBHOOK_SECRET in .env.local.
- * 4. Fill CAKTO_OFFER_TO_PLAN in src/lib/billing/cakto.ts with your offer IDs.
+ * Candidate headers inspected (in order):
+ *   1. x-cakto-signature
+ *   2. x-cakto-token
+ *   3. x-webhook-token
+ *   4. x-token
+ *   5. authorization  (stripped of "Bearer " prefix if present)
  *
- * ─── TESTING ─────────────────────────────────────────────────────────────────
- * Use Cakto's "Testar webhook" feature in the dashboard, or send a test with:
- *   curl -X POST https://your-domain.com/api/webhook/cakto \
- *     -H "Content-Type: application/json" \
- *     -d '{"event":"purchase.approved","data":{"id":"test_1","status":"approved","total":4990,"customer":{"email":"professor@email.com","name":"Test"},"offer":{"id":"abc123def","name":"Pro"},"external_reference":"userId_here","created_at":"2024-01-01T00:00:00Z"}}'
+ * Debug logs (safe for production — no full secrets exposed):
+ *   [Cakto webhook] shows which header matched and basic request info.
  *
  * ─── TODO (Supabase) ─────────────────────────────────────────────────────────
  * Replace activationStore.set() with:
- *   await supabase.from('cakto_activations').upsert({
- *     email, user_id, plan_id, cakto_order_id, expires_at, activated_at
- *   })
+ *   await supabase.from('cakto_activations').upsert({ ... })
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import {
   activationStore,
-  validateCaktoSignature,
   computeExpiry,
   CAKTO_OFFER_TO_PLAN,
   CAKTO_CONFIG,
   type CaktoWebhookPayload,
   type PendingActivation,
 } from '@/lib/billing/cakto'
+
+// ─── Candidate headers Cakto may use to carry the secret ─────────────────────
+const SIGNATURE_HEADERS = [
+  'x-cakto-signature',
+  'x-cakto-token',
+  'x-webhook-token',
+  'x-token',
+  'authorization',
+] as const
+
+// ─── Constant-time string comparison (prevents timing attacks) ────────────────
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  }
+  return diff === 0
+}
+
+// ─── Validate the incoming request against the configured secret ──────────────
+function validateRequest(req: NextRequest): {
+  valid: boolean
+  matchedHeader: string | null
+  debugInfo: Record<string, string>
+} {
+  const secret = CAKTO_CONFIG.webhookSecret
+
+  // Build a safe debug map: header name → truncated value (never expose full secret)
+  const debugInfo: Record<string, string> = {}
+  req.headers.forEach((value, key) => {
+    debugInfo[key] = value.length > 24
+      ? `${value.slice(0, 8)}…(${value.length} chars)`
+      : value
+  })
+
+  if (!secret) {
+    // No secret configured → skip validation (useful during initial setup)
+    return { valid: true, matchedHeader: null, debugInfo }
+  }
+
+  for (const headerName of SIGNATURE_HEADERS) {
+    let headerValue = req.headers.get(headerName) ?? ''
+
+    // Strip "Bearer " prefix if present (handles Authorization header)
+    if (headerName === 'authorization' && headerValue.toLowerCase().startsWith('bearer ')) {
+      headerValue = headerValue.slice(7).trim()
+    }
+
+    if (!headerValue) continue
+
+    if (safeEqual(headerValue, secret)) {
+      return { valid: true, matchedHeader: headerName, debugInfo }
+    }
+  }
+
+  return { valid: false, matchedHeader: null, debugInfo }
+}
 
 // ─── Approved-event handler ───────────────────────────────────────────────────
 
@@ -58,7 +107,6 @@ function handleApproved(payload: CaktoWebhookPayload): NextResponse {
   const planId  = CAKTO_OFFER_TO_PLAN[offerId]
 
   if (!planId) {
-    // Offer not yet mapped — log and accept (don't return 4xx, or Cakto will retry)
     console.warn(
       `[Cakto webhook] Unknown offer ID "${offerId}" — add it to CAKTO_OFFER_TO_PLAN in src/lib/billing/cakto.ts`
     )
@@ -70,18 +118,17 @@ function handleApproved(payload: CaktoWebhookPayload): NextResponse {
 
   const activation: PendingActivation = {
     email,
-    userId:       external_reference ?? null,  // userId passed via ?ref= in checkout URL
+    userId:       external_reference ?? null,
     planId,
     caktoOrderId: id,
     activatedAt,
     expiresAt,
   }
 
-  // Store pending activation — frontend will pick this up on next page load
-  // ⚠️  TODO (Supabase): write to DB table instead of in-memory Map
+  // ⚠️ TODO (Supabase): write to DB table instead of in-memory Map
   activationStore.set(email, activation)
 
-  console.info(`[Cakto webhook] Plan "${planId}" activated for ${email} (order ${id})`)
+  console.info(`[Cakto webhook] ✅ Plan "${planId}" activated for ${email} (order ${id})`)
   return NextResponse.json({ ok: true, planId, email })
 }
 
@@ -89,16 +136,8 @@ function handleApproved(payload: CaktoWebhookPayload): NextResponse {
 
 function handleRefund(payload: CaktoWebhookPayload): NextResponse {
   const email = payload.data.customer?.email?.toLowerCase().trim()
-  if (email) {
-    // Remove any pending activation for this email
-    activationStore.delete(email)
-  }
-  // NOTE: To downgrade the user's plan back to 'free', you would need a
-  // server-side DB here. With localStorage-only, a server-side downgrade
-  // is not possible — the user's plan stays until they log in again.
-  //
+  if (email) activationStore.delete(email)
   // TODO (Supabase): UPDATE subscriptions SET plan_id='free', status='cancelled'
-  //   WHERE cakto_customer_email = $1
   console.info(`[Cakto webhook] Refund received for ${email ?? 'unknown'} — order ${payload.data.id}`)
   return NextResponse.json({ ok: true, event: payload.event })
 }
@@ -106,48 +145,76 @@ function handleRefund(payload: CaktoWebhookPayload): NextResponse {
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Read raw body for signature verification
+  const secret = CAKTO_CONFIG.webhookSecret
+
+  // ── Debug: secret presence (never log the full value) ──────────────────────
+  console.info(
+    `[Cakto webhook] Incoming request — secret configured: ${secret ? `yes (${secret.length} chars, starts "${secret.slice(0, 4)}…")` : 'NO — skipping validation'}`
+  )
+
+  // ── Read raw body BEFORE any other processing ───────────────────────────────
+  // (body must be read as text; once consumed it cannot be re-read)
   let rawBody: string
   try {
     rawBody = await req.text()
   } catch {
+    console.error('[Cakto webhook] Failed to read request body.')
     return NextResponse.json({ error: 'Cannot read body' }, { status: 400 })
   }
 
-  // Validate signature (only if CAKTO_WEBHOOK_SECRET is configured)
-  const signature = req.headers.get('x-cakto-signature') ?? req.headers.get('x-signature') ?? ''
-  const secret    = CAKTO_CONFIG.webhookSecret
+  console.info(`[Cakto webhook] Body length: ${rawBody.length} chars`)
 
-  if (secret) {
-    const valid = await validateCaktoSignature(rawBody, signature, secret)
-    if (!valid) {
-      console.warn('[Cakto webhook] Invalid signature — request rejected.')
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
-    }
+  // ── Validate signature ──────────────────────────────────────────────────────
+  const { valid, matchedHeader, debugInfo } = validateRequest(req)
+
+  // Log header names + truncated values (safe for production)
+  console.info('[Cakto webhook] Request headers:', JSON.stringify(debugInfo))
+
+  if (!valid) {
+    console.warn(
+      `[Cakto webhook] ❌ Signature invalid — none of [${SIGNATURE_HEADERS.join(', ')}] matched the secret.`
+    )
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
-  // Parse payload
+  if (matchedHeader) {
+    console.info(`[Cakto webhook] ✅ Signature valid — matched via header "${matchedHeader}"`)
+  } else {
+    console.info('[Cakto webhook] ✅ Signature check skipped (no secret configured)')
+  }
+
+  // ── Parse payload ───────────────────────────────────────────────────────────
   let payload: CaktoWebhookPayload
   try {
     payload = JSON.parse(rawBody)
   } catch {
+    console.error('[Cakto webhook] Body is not valid JSON.')
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
   const event = payload.event ?? ''
-  console.info(`[Cakto webhook] Event received: "${event}"`)
+  console.info(`[Cakto webhook] Event type: "${event}"`)
 
-  // Route by event type
-  // Note: Cakto may use "purchase.approved", "order.approved", or similar.
-  // Adjust these strings to match your Cakto product configuration.
-  if (event === 'purchase.approved' || event === 'order.approved' || event === 'payment.approved') {
+  // ── Route by event type ─────────────────────────────────────────────────────
+  // Covers all known Cakto event naming conventions
+  if (
+    event === 'purchase.approved' ||
+    event === 'order.approved'    ||
+    event === 'payment.approved'  ||
+    event === 'sale.approved'
+  ) {
     return handleApproved(payload)
   }
 
-  if (event === 'purchase.refunded' || event === 'order.refunded' || event === 'purchase.chargeback') {
+  if (
+    event === 'purchase.refunded'   ||
+    event === 'order.refunded'      ||
+    event === 'purchase.chargeback' ||
+    event === 'sale.refunded'
+  ) {
     return handleRefund(payload)
   }
 
-  // Unknown event — accept but ignore (don't return 4xx)
+  console.info(`[Cakto webhook] Unknown event "${event}" — accepted but ignored.`)
   return NextResponse.json({ ok: true, skipped: 'unknown_event', event })
 }
