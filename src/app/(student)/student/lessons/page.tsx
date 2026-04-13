@@ -83,9 +83,6 @@ export default function StudentLessonsPage() {
               <span className="font-medium text-gray-700">Tópico:</span> {lesson.topic}
             </p>
           )}
-          {lesson.notes && (
-            <p className="mt-1 text-xs text-gray-400 line-clamp-2">{lesson.notes}</p>
-          )}
         </div>
         {lesson.status === 'agendada' && student?.meetLink && (
           <a
