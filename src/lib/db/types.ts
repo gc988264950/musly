@@ -34,6 +34,14 @@ export const STUDENT_COLORS = [
 ] as const
 export type StudentColor = (typeof STUDENT_COLORS)[number]
 
+export const CONTRACT_DURATIONS = [
+  { value: 1,  label: '1 mês' },
+  { value: 3,  label: '3 meses' },
+  { value: 6,  label: '6 meses' },
+  { value: 12, label: '12 meses' },
+] as const
+export type ContractDuration = 1 | 3 | 6 | 12
+
 export interface Student {
   id: string
   teacherId: string
@@ -48,6 +56,12 @@ export interface Student {
   color: string         // hex color
   needsAttention: boolean
   meetLink: string      // '' when not provided (Google Meet or other video call URL)
+  // Recurring schedule & contract
+  scheduleDays: number[]        // [1,3] = Mon + Wed (0=Sun … 6=Sat); [] = no schedule
+  scheduleTime: string          // "HH:MM"; '' when not set
+  scheduleDuration: number      // minutes; 0 when not set
+  contractDuration: ContractDuration | null
+  contractEndDate: string       // "YYYY-MM-DD"; '' when not set
   createdAt: string
   updatedAt: string
 }
@@ -141,12 +155,19 @@ export interface Lesson {
   notes: string   // '' when not provided
   status: LessonStatus
   performanceTags: string[]   // e.g. ['difficulty', 'evolved'] — set during lesson mode
+  homework: string            // '' when not set
+  homeworkSentAt: string | null  // ISO date when homework was sent; null = not sent
+  // Back-reference to the recurring schedule that generated this lesson ('' = manual)
+  scheduleGroupId: string
   createdAt: string
   updatedAt: string
 }
 
-export type CreateLessonInput = Omit<Lesson, 'id' | 'createdAt' | 'updatedAt' | 'performanceTags'> & {
+export type CreateLessonInput = Omit<Lesson, 'id' | 'createdAt' | 'updatedAt' | 'performanceTags' | 'homework' | 'homeworkSentAt' | 'scheduleGroupId'> & {
   performanceTags?: string[]
+  homework?: string
+  homeworkSentAt?: string | null
+  scheduleGroupId?: string
 }
 export type UpdateLessonInput = Partial<Omit<CreateLessonInput, 'teacherId'>>
 
@@ -175,6 +196,7 @@ export interface LessonPlan {
   id: string
   studentId: string
   teacherId: string
+  lessonId: string    // '' = not tied to a specific lesson (legacy AI plans)
   // Inputs captured at generation time
   duration: 30 | 45 | 60
   focus: LessonFocus
@@ -186,13 +208,29 @@ export interface LessonPlan {
   title: string
   summary: string
   sections: LessonPlanSection[]
+  // Structured planning blocks (teacher-editable)
+  planObjective: string       // Objetivo da aula
+  planContent: string         // Conteúdo
+  planExercises: string       // Exercícios
+  planObservations: string    // Observações
+  // Continuity blocks (teacher-editable)
+  planPending: string         // O que ficou pendente da aula anterior
+  planNextLesson: string      // O que deve acontecer na próxima aula
   // Meta
   createdAt: string
   updatedAt: string
 }
 
-export type CreateLessonPlanInput = Omit<LessonPlan, 'id' | 'createdAt' | 'updatedAt'>
-export type UpdateLessonPlanInput = Partial<Pick<LessonPlan, 'sections' | 'title' | 'summary' | 'teacherObservation'>>
+export type CreateLessonPlanInput = Omit<LessonPlan, 'id' | 'createdAt' | 'updatedAt' | 'lessonId' | 'planObjective' | 'planContent' | 'planExercises' | 'planObservations' | 'planPending' | 'planNextLesson'> & {
+  lessonId?: string
+  planObjective?: string
+  planContent?: string
+  planExercises?: string
+  planObservations?: string
+  planPending?: string
+  planNextLesson?: string
+}
+export type UpdateLessonPlanInput = Partial<Pick<LessonPlan, 'sections' | 'title' | 'summary' | 'teacherObservation' | 'planObjective' | 'planContent' | 'planExercises' | 'planObservations' | 'planPending' | 'planNextLesson'>>
 
 // ─── Financial ────────────────────────────────────────────────────────────────
 
@@ -284,6 +322,31 @@ export interface UserSubscription {
   id: string
   userId: string
   planId: PlanId
-  simulatedAt: string
+
+  // ── Billing status ─────────────────────────────────────────────────────────
+  /** 'active' = plan is in effect · 'expired' = past expiry · 'cancelled' = refunded */
+  status: 'active' | 'inactive' | 'expired' | 'cancelled'
+
+  /** ISO string — when this subscription period started */
+  startedAt: string
+
+  /** ISO string — when this subscription period ends. null = no expiry (free plan). */
+  expiresAt: string | null
+
+  /** ISO string — last renewal date, if applicable */
+  renewedAt: string | null
+
+  /** Which payment provider processed this subscription */
+  billingProvider: 'manual' | 'cakto' | null
+
+  /** Cakto order/transaction ID for reference & support */
+  caktoOrderId: string | null
+
+  /** Customer email used in Cakto checkout — used for webhook matching */
+  caktoCustomerEmail: string | null
+
+  // ── Legacy field (kept for backwards compat) ───────────────────────────────
+  simulatedAt?: string
+
   updatedAt: string
 }

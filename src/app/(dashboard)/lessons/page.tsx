@@ -3,7 +3,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Plus, Search, Pencil, Trash2, Calendar, Clock, Music,
-  BookOpen, ChevronDown, CheckCircle2, Video, PlayCircle,
+  BookOpen, ChevronDown, CheckCircle2, Video, PlayCircle, AlertTriangle,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useLessons } from '@/hooks/useLessons'
@@ -106,6 +106,21 @@ function validateForm(f: FormState): Record<string, string> {
   return e
 }
 
+/** Returns the conflicting lesson, if any, for given date/time/duration. */
+function findConflict(allLessons: Lesson[], date: string, time: string, duration: number, excludeId?: string): Lesson | null {
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+  const newStart = toMin(time)
+  const newEnd = newStart + duration
+  return allLessons.find((l) => {
+    if (l.id === excludeId) return false
+    if (l.date !== date) return false
+    if (l.status === 'cancelada') return false
+    const lStart = toMin(l.time)
+    const lEnd = lStart + l.duration
+    return newStart < lEnd && newEnd > lStart
+  }) ?? null
+}
+
 // ─── Lesson row ──────────────────────────────────────────────────────────────
 
 interface LessonRowProps {
@@ -115,11 +130,27 @@ interface LessonRowProps {
   onEdit: () => void
   onDelete: () => void
   onStatusChange: (status: LessonStatus) => void
+  onReschedule: (date: string, time: string) => void
+  allLessons: Lesson[]
 }
 
-function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onStatusChange }: LessonRowProps) {
+function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onStatusChange, onReschedule, allLessons }: LessonRowProps) {
   const [statusOpen, setStatusOpen] = useState(false)
+  const [rescheduling, setRescheduling] = useState(false)
+  const [newDate, setNewDate] = useState(lesson.date)
+  const [newTime, setNewTime] = useState(lesson.time)
+  const [rescheduleError, setRescheduleError] = useState('')
   const router = useRouter()
+
+  function handleRescheduleSave() {
+    if (!newDate) { setRescheduleError('Selecione uma data.'); return }
+    if (!newTime) { setRescheduleError('Selecione um horário.'); return }
+    if (newDate < todayISO()) { setRescheduleError('A nova data não pode ser no passado.'); return }
+    const conflict = findConflict(allLessons, newDate, newTime, lesson.duration, lesson.id)
+    if (conflict) { setRescheduleError(`Conflito com aula de outro aluno às ${formatTime(conflict.time)}.`); return }
+    onReschedule(newDate, newTime)
+    setRescheduling(false)
+  }
   const style = statusStyle[lesson.status]
 
   return (
@@ -212,6 +243,19 @@ function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onS
           )}
         </div>
 
+        {/* Remarcar */}
+        {lesson.status === 'agendada' && (
+          <button
+            onClick={() => { setRescheduling((v) => !v); setRescheduleError('') }}
+            title="Remarcar aula"
+            className={cn(
+              'rounded-lg p-1.5 text-gray-400 transition-colors opacity-0 group-hover:opacity-100',
+              rescheduling ? 'bg-blue-50 text-blue-600' : 'hover:bg-blue-50 hover:text-blue-600'
+            )}
+          >
+            <Calendar className="h-3.5 w-3.5" />
+          </button>
+        )}
         {/* Edit / Delete */}
         <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           <button
@@ -230,6 +274,40 @@ function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onS
           </button>
         </div>
       </div>
+
+      {/* Inline reschedule panel */}
+      {rescheduling && (
+        <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
+          <p className="mb-3 text-xs font-semibold text-blue-800">Remarcar aula — {studentName}</p>
+          <div className="flex flex-wrap gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-blue-700">Nova data</label>
+              <input type="date" value={newDate} min={todayISO()}
+                onChange={(e) => { setNewDate(e.target.value); setRescheduleError('') }}
+                className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-blue-700">Novo horário</label>
+              <input type="time" value={newTime}
+                onChange={(e) => { setNewTime(e.target.value); setRescheduleError('') }}
+                className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div className="flex items-end gap-2">
+              <button onClick={handleRescheduleSave}
+                className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition-colors">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar
+              </button>
+              <button onClick={() => setRescheduling(false)}
+                className="rounded-lg px-3 py-2 text-xs text-gray-500 hover:bg-blue-100 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </div>
+          {rescheduleError && <p className="mt-2 text-xs text-red-600">{rescheduleError}</p>}
+        </div>
+      )}
     </div>
   )
 }
@@ -379,6 +457,7 @@ export default function LessonsPage() {
   const [form, setForm] = useState<FormState>(makeDefaultForm)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
+  const [conflictWarning, setConflictWarning] = useState<string | null>(null)
 
   // Delete
   const [deleteTarget, setDeleteTarget] = useState<Lesson | null>(null)
@@ -440,6 +519,7 @@ export default function LessonsPage() {
     setEditing(null)
     setForm(makeDefaultForm())
     setErrors({})
+    setConflictWarning(null)
     setModalOpen(true)
   }, [])
 
@@ -456,6 +536,7 @@ export default function LessonsPage() {
       status: lesson.status,
     })
     setErrors({})
+    setConflictWarning(null)
     setModalOpen(true)
   }, [])
 
@@ -468,6 +549,14 @@ export default function LessonsPage() {
     const e = validateForm(form)
     if (Object.keys(e).length > 0) { setErrors(e); return }
     setErrors({})
+    // Conflict check
+    const conflict = findConflict(lessons, form.date, form.time, form.duration, editing?.id)
+    if (conflict) {
+      const cName = studentMap[conflict.studentId]?.name ?? 'outro aluno'
+      setConflictWarning(`Já existe uma aula nesse horário: ${cName} às ${formatTime(conflict.time)} (${formatDuration(conflict.duration)}).`)
+      return
+    }
+    setConflictWarning(null)
     setSaving(true)
     try {
       const payload = {
@@ -617,6 +706,8 @@ export default function LessonsPage() {
                         onEdit={() => openEdit(lesson)}
                         onDelete={() => setDeleteTarget(lesson)}
                         onStatusChange={(status) => update(lesson.id, { status })}
+                        onReschedule={(date, time) => update(lesson.id, { date, time })}
+                        allLessons={lessons}
                       />
                     ))}
                   </div>
@@ -634,7 +725,13 @@ export default function LessonsPage() {
         title={editing ? 'Editar Aula' : 'Nova Aula'}
         size="md"
       >
-        <LessonForm form={form} errors={errors} onChange={patchForm} students={students} />
+        <LessonForm form={form} errors={errors} onChange={(p) => { patchForm(p); setConflictWarning(null) }} students={students} />
+        {conflictWarning && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3">
+            <span className="mt-0.5 text-yellow-600">⚠️</span>
+            <p className="text-sm text-yellow-800">{conflictWarning}</p>
+          </div>
+        )}
         <div className="mt-6 flex justify-end gap-3 border-t border-gray-100 pt-4">
           <Button variant="outline" onClick={() => setModalOpen(false)}>
             Cancelar

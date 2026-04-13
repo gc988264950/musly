@@ -8,6 +8,7 @@ import {
   BookOpen, Clock, ChevronDown, Tag, StickyNote, TrendingUp, List,
   Sparkles, ChevronRight as ChevronRightIcon, Save, RefreshCw,
   CreditCard, DollarSign, Calendar, FileDown, Lightbulb, PlayCircle, FolderOpen,
+  ClipboardList, AlertCircle,
 } from 'lucide-react'
 import { FilesTab } from '@/components/ui/FilesTab'
 import { useStudentProfile } from '@/hooks/useStudentProfile'
@@ -36,6 +37,7 @@ import { generateLessonPlan } from '@/lib/ai/lessonPlanner'
 import { exportLessonPlanPDF } from '@/lib/pdf/exportLessonPlan'
 import { computeStatusForMonth, getDueDateForMonth, computePaymentStatus } from '@/lib/db/payments'
 import { currentYearMonth, formatCurrency, formatMonth } from '@/hooks/useFinancial'
+import { getLessonPlanByLessonId } from '@/lib/db/lessonPlans'
 import { cn, getInitials } from '@/lib/utils'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -85,7 +87,7 @@ const levelStyle: Record<StudentLevel, string> = {
 
 // ─── Tab definition ───────────────────────────────────────────────────────────
 
-type TabId = 'overview' | 'history' | 'progress' | 'repertoire' | 'notes' | 'ai-planner' | 'financeiro' | 'materiais'
+type TabId = 'overview' | 'history' | 'progress' | 'repertoire' | 'notes' | 'planejamento' | 'financeiro' | 'materiais'
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Visão Geral', icon: Music },
@@ -93,7 +95,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'progress', label: 'Progresso', icon: TrendingUp },
   { id: 'repertoire', label: 'Repertório', icon: List },
   { id: 'notes', label: 'Anotações', icon: StickyNote },
-  { id: 'ai-planner', label: 'Plano IA', icon: Sparkles },
+  { id: 'planejamento', label: 'Planejamento', icon: ClipboardList },
   { id: 'financeiro', label: 'Financeiro', icon: CreditCard },
   { id: 'materiais', label: 'Materiais', icon: FolderOpen },
 ]
@@ -2141,6 +2143,562 @@ function TabFinanceiro({ profile }: { profile: ReturnType<typeof useStudentProfi
   )
 }
 
+// ─── AI chat mock responses ───────────────────────────────────────────────────
+
+function buildAIChatResponse(prompt: string, context: {
+  instrument: string
+  level: string
+  objective: string
+  content: string
+  pending: string
+}): string {
+  const p = prompt.toLowerCase()
+  const { instrument, level, objective, content, pending } = context
+
+  if (p.includes('objetivo') || p.includes('meta') || p.includes('o que trabalhar')) {
+    if (pending) {
+      return `Com base no que ficou pendente ("${pending.slice(0, 60)}…"), sugiro que o objetivo desta aula seja consolidar esse conteúdo antes de avançar. Defina um ponto específico de chegada: o aluno deve conseguir tocar o trecho X sem parar, ou executar o exercício Y com a digitação correta.`
+    }
+    return `Para ${level} em ${instrument}, um bom objetivo é ser específico e mensurável. Por exemplo: "Tocar os 8 primeiros compassos de [música] em andamento lento, sem pausas" ou "Executar a escala de Dó maior em duas oitavas, mão direita, com metrônomo a 60 bpm". Evite objetivos vagos como "melhorar a técnica".`
+  }
+
+  if (p.includes('exercício') || p.includes('técnica') || p.includes('praticar')) {
+    return `Alguns exercícios úteis para ${instrument} nível ${level}:\n• Escalas com diferentes articulações (legato/staccato)\n• Exercícios de independência de dedos (Hanon, Czerny para piano; ou cromáticos para outros instrumentos)\n• Fragmentos do repertório atual em andamento lento, isolando as partes difíceis\n• Leitura à primeira vista de trechos curtos\n\nSempre use o metrônomo para criar referência de andamento.`
+  }
+
+  if (p.includes('repertório') || p.includes('música') || p.includes('peça')) {
+    return `Para escolher repertório adequado para ${instrument} nível ${level}, considere:\n• Uma peça que seja ligeiramente desafiadora (70% dentro do nível atual)\n• Algo que o aluno goste — motivação é parte do aprendizado\n• Alterne entre peças técnicas e repertório expressivo\n\nSe o aluno já tem peças em andamento: mantenha no máximo 2-3 simultaneamente para não sobrecarregar.`
+  }
+
+  if (p.includes('próxima') || p.includes('continuar') || p.includes('sequência')) {
+    if (objective || content) {
+      return `Baseado no planejamento desta aula, sugiro que a próxima aula dê continuidade ao conteúdo já iniciado. Use os primeiros 5-10 minutos para revisar o que foi trabalhado hoje. Se o aluno dominou bem, avance para a próxima seção. Se ainda está inseguro, dedique mais tempo antes de avançar. Anote o ponto exato onde a aula encerrou para retomar sem perda.`
+    }
+    return `Para garantir continuidade entre as aulas: anote sempre o exato ponto onde parou (compasso X da música Y, exercício Z). No início da próxima aula, revisite brevemente o que foi feito antes de avançar. Isso reduz o tempo de "re-aquecimento" e mantém o progresso consistente.`
+  }
+
+  if (p.includes('dificuldade') || p.includes('problema') || p.includes('erro')) {
+    return `Quando o aluno tem dificuldades recorrentes, é útil identificar a causa raíz:\n• É leitura (não reconhece as notas)? → Exercícios de solfejo e leitura rítmica\n• É técnica (dedos, postura)? → Voltar a exercícios fundamentais sem repertório\n• É andamento (muito rápido)? → Metrônomo em 50-60% do andamento desejado\n• É concentração? → Fragmentar em trechos muito pequenos, 2-4 compassos por vez\n\nIdentifique qual das causas é e ataque especificamente ela.`
+  }
+
+  if (p.includes('motivação') || p.includes('desanimado') || p.includes('interesse')) {
+    return `Para manter a motivação do aluno:\n• Inclua pelo menos uma música que ele pediu ou que goste\n• Mostre o progresso: grave um vídeo breve de vez em quando para comparar\n• Celebre pequenas vitórias — tocar 4 compassos limpos é uma conquista real\n• Varie o formato da aula: nem toda aula precisa ser igual\n• Converse sobre os objetivos de longo prazo — o que o aluno quer tocar daqui a 6 meses?`
+  }
+
+  // Generic fallback with context awareness
+  if (objective) {
+    return `Considerando o objetivo desta aula ("${objective.slice(0, 80)}"), aqui vai uma sugestão: divida o tempo em 3 blocos — aquecimento (10-15 min), foco principal (30-35 min) e encerramento/lição de casa (10 min). No bloco principal, trabalhe diretamente o objetivo declarado. No encerramento, defina claramente o que o aluno deve praticar em casa e como.`
+  }
+
+  return `Como posso ajudar com o planejamento desta aula de ${instrument}? Posso sugerir:\n• Objetivos específicos para o nível ${level}\n• Exercícios e técnicas adequadas\n• Repertório recomendado\n• Estratégias de continuidade entre aulas\n• Como lidar com dificuldades específicas\n\nFaça uma pergunta mais específica para uma resposta mais útil.`
+}
+
+// ─── Tab: Planejamento de Aula ────────────────────────────────────────────────
+
+interface ChatMessage {
+  role: 'user' | 'assistant'
+  text: string
+}
+
+function TabPlanejamento({ profile }: { profile: ReturnType<typeof useStudentProfile> }) {
+  const { student, lessons, lessonPlans, saveLessonPlan, updateLessonPlan } = profile
+  const [selectedLessonId, setSelectedLessonId] = useState<string | null>(null)
+
+  // Planning fields
+  const [planObjective, setPlanObjective] = useState('')
+  const [planContent, setPlanContent] = useState('')
+  const [planExercises, setPlanExercises] = useState('')
+  const [planObservations, setPlanObservations] = useState('')
+  const [planPending, setPlanPending] = useState('')
+  const [planNextLesson, setPlanNextLesson] = useState('')
+  const [planSaved, setPlanSaved] = useState(false)
+
+  // AI chat
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatExpanded, setChatExpanded] = useState(false)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // ── Filter + sort state ──────────────────────────────────────────────
+  const [planFilter, setPlanFilter] = useState<'today' | 'week' | 'month' | 'all'>('all')
+
+  const todayStr    = new Date().toISOString().slice(0, 10)
+  const tomorrowStr = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) })()
+  const weekEndStr  = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
+
+  // Upcoming ascending (soonest first), past descending (most recent just below upcoming)
+  const upcoming = [...lessons.filter(l => l.date >= todayStr)].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)
+  )
+  const past = [...lessons.filter(l => l.date < todayStr)].sort(
+    (a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time)
+  )
+  const sortedLessons = [...upcoming, ...past]
+
+  const filteredLessons = (() => {
+    if (planFilter === 'today') return sortedLessons.filter(l => l.date === todayStr)
+    if (planFilter === 'week')  return sortedLessons.filter(l => l.date >= todayStr && l.date <= weekEndStr)
+    if (planFilter === 'month') {
+      const mp = todayStr.slice(0, 7)
+      return sortedLessons.filter(l => l.date.slice(0, 7) === mp)
+    }
+    return sortedLessons
+  })()
+
+  function openLesson(lessonId: string) {
+    setSelectedLessonId(lessonId)
+    setPlanSaved(false)
+    setChatMessages([])
+    setChatExpanded(false)
+    const existing =
+      lessonPlans.find((p) => p.lessonId === lessonId) ??
+      getLessonPlanByLessonId(lessonId)
+    if (existing) {
+      setPlanObjective(existing.planObjective)
+      setPlanContent(existing.planContent)
+      setPlanExercises(existing.planExercises)
+      setPlanObservations(existing.planObservations)
+      setPlanPending(existing.planPending ?? '')
+      setPlanNextLesson(existing.planNextLesson ?? '')
+    } else {
+      setPlanObjective('')
+      setPlanContent('')
+      setPlanExercises('')
+      setPlanObservations('')
+      setPlanPending('')
+      setPlanNextLesson('')
+    }
+  }
+
+  function handleSavePlan() {
+    if (!selectedLessonId) return
+    const existingInHook = lessonPlans.find((p) => p.lessonId === selectedLessonId)
+    const existingInDb = getLessonPlanByLessonId(selectedLessonId)
+    const existing = existingInHook ?? existingInDb
+    if (existing) {
+      updateLessonPlan(existing.id, { planObjective, planContent, planExercises, planObservations, planPending, planNextLesson })
+    } else {
+      const lesson = lessons.find((l) => l.id === selectedLessonId)
+      if (!lesson) return
+      saveLessonPlan({
+        lessonId: selectedLessonId,
+        duration: lesson.duration as 30 | 45 | 60,
+        focus: 'misto',
+        level: student?.level ?? 'Iniciante',
+        difficulties: [],
+        objectives: '',
+        teacherObservation: '',
+        title: 'Planejamento de aula',
+        summary: '',
+        sections: [],
+        planObjective,
+        planContent,
+        planExercises,
+        planObservations,
+        planPending,
+        planNextLesson,
+      })
+    }
+    setPlanSaved(true)
+    setTimeout(() => setPlanSaved(false), 2500)
+  }
+
+  async function handleChatSend() {
+    const text = chatInput.trim()
+    if (!text || chatLoading) return
+    setChatInput('')
+    setChatExpanded(true)
+    const userMsg: ChatMessage = { role: 'user', text }
+    setChatMessages((prev) => [...prev, userMsg])
+    setChatLoading(true)
+    // Simulate AI latency
+    await new Promise((r) => setTimeout(r, 900 + Math.random() * 600))
+    const response = buildAIChatResponse(text, {
+      instrument: student?.instrument ?? 'instrumento',
+      level: student?.level ?? 'Iniciante',
+      objective: planObjective,
+      content: planContent,
+      pending: planPending,
+    })
+    setChatMessages((prev) => [...prev, { role: 'assistant', text: response }])
+    setChatLoading(false)
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80)
+  }
+
+  const selectedLesson = lessons.find((l) => l.id === selectedLessonId) ?? null
+
+  if (lessons.length === 0) {
+    return (
+      <div className="rounded-2xl border border-gray-100 bg-white py-12 text-center">
+        <ClipboardList className="mx-auto h-8 w-8 text-gray-300" />
+        <p className="mt-2 text-sm text-gray-400">Nenhuma aula encontrada para planejar.</p>
+      </div>
+    )
+  }
+
+  // ── Lesson list view ───────────────────────────────────────────────────────
+  if (!selectedLesson) {
+    const filterOptions = [
+      { id: 'today' as const, label: 'Aula de hoje' },
+      { id: 'week'  as const, label: 'Esta semana'  },
+      { id: 'month' as const, label: 'Este mês'     },
+      { id: 'all'   as const, label: 'Todas'        },
+    ]
+
+    let lastGroup = ''
+
+    return (
+      <div className="space-y-3">
+
+        {/* ── Filter bar ──────────────────────────────────────────────── */}
+        <div className="flex items-center gap-1 rounded-xl border border-gray-100 bg-white p-1">
+          {filterOptions.map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setPlanFilter(id)}
+              className={cn(
+                'flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
+                planFilter === id
+                  ? 'bg-[#1a7cfa] text-white shadow-sm'
+                  : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* ── List ────────────────────────────────────────────────────── */}
+        <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+          {filteredLessons.length === 0 ? (
+            <div className="py-12 text-center">
+              <ClipboardList className="mx-auto h-7 w-7 text-gray-200" />
+              <p className="mt-2 text-sm text-gray-400">
+                {planFilter === 'today' ? 'Nenhuma aula hoje.'
+                  : planFilter === 'week'  ? 'Nenhuma aula nos próximos 7 dias.'
+                  : planFilter === 'month' ? 'Nenhuma aula neste mês.'
+                  : 'Nenhuma aula encontrada.'}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {filteredLessons.map((lesson) => {
+                const hasPlan =
+                  lessonPlans.some((p) => p.lessonId === lesson.id) ||
+                  !!getLessonPlanByLessonId(lesson.id)
+                const style    = lessonStatusStyle[lesson.status]
+                const isUpcoming = lesson.date >= todayStr
+
+                // Section group label
+                const group =
+                  lesson.date === todayStr    ? 'Hoje'
+                  : lesson.date === tomorrowStr ? 'Amanhã'
+                  : lesson.date > todayStr && lesson.date <= weekEndStr ? 'Esta semana'
+                  : lesson.date > weekEndStr  ? 'Próximas aulas'
+                  : 'Passadas'
+
+                const showHeader = group !== lastGroup
+                if (showHeader) lastGroup = group
+
+                return (
+                  <div key={lesson.id}>
+                    {showHeader && (
+                      <div className="border-b border-gray-50 bg-gray-50/70 px-5 py-1.5">
+                        <p className={cn(
+                          'text-[11px] font-semibold uppercase tracking-wide',
+                          group === 'Hoje'    ? 'text-[#1a7cfa]'
+                          : group === 'Passadas' ? 'text-gray-300'
+                          : 'text-gray-400'
+                        )}>
+                          {group}
+                        </p>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => openLesson(lesson.id)}
+                      className="flex w-full items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <div className={cn('h-2.5 w-2.5 flex-shrink-0 rounded-full', style.dot)} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 capitalize">
+                          {new Date(lesson.date + 'T12:00:00').toLocaleDateString('pt-BR', {
+                            weekday: 'short', day: 'numeric', month: 'short',
+                          })}
+                          {' · '}{formatTime(lesson.time)}{' · '}{formatDuration(lesson.duration)}
+                        </p>
+                        {lesson.topic && (
+                          <p className="text-xs text-gray-400 truncate">{lesson.topic}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {!hasPlan && isUpcoming && (
+                          <span className="rounded-full bg-yellow-50 px-2 py-0.5 text-[10px] font-semibold text-yellow-700">
+                            Sem planejamento
+                          </span>
+                        )}
+                        {hasPlan && (
+                          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+                            Planejado
+                          </span>
+                        )}
+                        <ChevronRightIcon className="h-4 w-4 text-gray-300" />
+                      </div>
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Planning editor view ───────────────────────────────────────────────────
+  return (
+    <div className="space-y-4">
+      {/* Header bar */}
+      <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-4 py-3">
+        <button
+          onClick={() => setSelectedLessonId(null)}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+        >
+          <ChevronRightIcon className="h-3.5 w-3.5 rotate-180" />
+          Aulas
+        </button>
+        <span className="text-gray-200">/</span>
+        <div className="flex-1 min-w-0">
+          <span className="text-sm font-semibold text-gray-900 capitalize">
+            {new Date(selectedLesson.date + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}
+          </span>
+          <span className="ml-2 text-sm text-gray-400">{formatTime(selectedLesson.time)} · {formatDuration(selectedLesson.duration)}</span>
+        </div>
+        <span className={cn('rounded-full px-2.5 py-0.5 text-[11px] font-semibold flex-shrink-0', lessonStatusStyle[selectedLesson.status].pill)}>
+          {LESSON_STATUSES.find((s) => s.value === selectedLesson.status)?.label}
+        </span>
+      </div>
+
+      {/* ── Section 1: Esta aula ────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-gray-50 bg-[#eef5ff] px-5 py-3">
+          <span className="text-sm">🎯</span>
+          <p className="text-xs font-bold uppercase tracking-wide text-[#1a7cfa]">Esta aula</p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-gray-700">Objetivo da aula</label>
+            <textarea
+              rows={3}
+              value={planObjective}
+              onChange={(e) => setPlanObjective(e.target.value)}
+              placeholder="O que o aluno deve alcançar nesta aula? Seja específico e mensurável…"
+              className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-gray-700">Conteúdo</label>
+            <textarea
+              rows={4}
+              value={planContent}
+              onChange={(e) => setPlanContent(e.target.value)}
+              placeholder="Repertório, teoria, conceitos a abordar nesta aula…"
+              className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-gray-700">Exercícios</label>
+            <textarea
+              rows={3}
+              value={planExercises}
+              onChange={(e) => setPlanExercises(e.target.value)}
+              placeholder="Exercícios técnicos, escalas, estudos, práticas específicas…"
+              className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-semibold text-gray-700">Observações</label>
+            <textarea
+              rows={2}
+              value={planObservations}
+              onChange={(e) => setPlanObservations(e.target.value)}
+              placeholder="Observações pedagógicas, pontos de atenção, lembretes…"
+              className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Section 2: Continuidade ─────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-gray-50 bg-amber-50 px-5 py-3">
+          <span className="text-sm">🔄</span>
+          <p className="text-xs font-bold uppercase tracking-wide text-amber-700">Continuidade</p>
+          <span className="ml-auto text-[10px] text-amber-500">Conecta esta aula com a anterior e a próxima</span>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">O que ficou pendente</label>
+            <p className="mb-2 text-xs text-gray-400">Conteúdo ou exercícios da aula anterior que não foram concluídos</p>
+            <textarea
+              rows={3}
+              value={planPending}
+              onChange={(e) => setPlanPending(e.target.value)}
+              placeholder="Ex.: Compasso 8 ao 12 da música X ainda precisa de trabalho. Revisitar digitação do arpejo em Lá menor…"
+              className="block w-full resize-none rounded-xl border border-amber-100 bg-amber-50/50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-amber-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-semibold text-gray-700">Próxima aula</label>
+            <p className="mb-2 text-xs text-gray-400">O que deve acontecer na próxima aula para manter o progresso</p>
+            <textarea
+              rows={3}
+              value={planNextLesson}
+              onChange={(e) => setPlanNextLesson(e.target.value)}
+              placeholder="Ex.: Introduzir os compassos 13-16. Se o objetivo desta aula for atingido, começar escala de Sol maior em 2 oitavas…"
+              className="block w-full resize-none rounded-xl border border-amber-100 bg-amber-50/50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-amber-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Save button ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white px-5 py-4">
+        <div className="flex items-center gap-2">
+          {planSaved && (
+            <span className="flex items-center gap-1.5 text-sm font-medium text-green-600">
+              <Check className="h-4 w-4" /> Salvo!
+            </span>
+          )}
+          <button
+            onClick={handleSavePlan}
+            className="flex items-center gap-2 rounded-xl bg-[#1a7cfa] px-5 py-2 text-sm font-semibold text-white hover:bg-[#1468d6] transition-colors"
+          >
+            <Save className="h-4 w-4" />
+            Salvar planejamento
+          </button>
+        </div>
+        <span className="text-xs text-gray-400">Ou</span>
+        <button
+          onClick={() => setChatExpanded(true)}
+          className="flex items-center gap-2 rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-100 transition-colors"
+        >
+          <Sparkles className="h-4 w-4" />
+          Gerar com IA
+        </button>
+      </div>
+
+      {/* ── Section 3: AI Chat ──────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
+        <button
+          onClick={() => setChatExpanded((v) => !v)}
+          className="flex w-full items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-purple-500" />
+            <span className="text-sm font-semibold text-gray-900">Assistente de planejamento</span>
+            {chatMessages.length > 0 && (
+              <span className="rounded-full bg-purple-50 px-1.5 py-0.5 text-[10px] font-semibold text-purple-600">
+                {chatMessages.filter((m) => m.role === 'assistant').length} resposta{chatMessages.filter((m) => m.role === 'assistant').length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-gray-400">{chatExpanded ? 'Recolher' : 'Abrir'}</span>
+        </button>
+
+        {chatExpanded && (
+          <div className="border-t border-gray-100">
+            {/* Quick prompts */}
+            {chatMessages.length === 0 && (
+              <div className="border-b border-gray-50 px-5 py-3">
+                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">Sugestões rápidas</p>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    'Sugira um objetivo para esta aula',
+                    'Que exercícios posso usar?',
+                    'Como planejar a continuidade?',
+                    'O aluno está desmotivado, o que fazer?',
+                  ].map((prompt) => (
+                    <button
+                      key={prompt}
+                      onClick={() => { setChatInput(prompt); }}
+                      className="rounded-full border border-purple-100 bg-purple-50 px-3 py-1.5 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Messages */}
+            {chatMessages.length > 0 && (
+              <div className="max-h-80 overflow-y-auto px-5 py-4 space-y-4">
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={cn('flex gap-3', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+                    {msg.role === 'assistant' && (
+                      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-purple-100">
+                        <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+                      </div>
+                    )}
+                    <div className={cn(
+                      'max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap',
+                      msg.role === 'user'
+                        ? 'bg-[#1a7cfa] text-white rounded-tr-md'
+                        : 'bg-gray-50 text-gray-800 rounded-tl-md border border-gray-100'
+                    )}>
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="flex gap-3">
+                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-purple-100">
+                      <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+                    </div>
+                    <div className="rounded-2xl rounded-tl-md border border-gray-100 bg-gray-50 px-4 py-3">
+                      <div className="flex gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-gray-300 animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+            )}
+
+            {/* Input */}
+            <div className="border-t border-gray-50 p-4">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChatSend() } }}
+                  placeholder="Pergunte sobre objetivos, exercícios, repertório, continuidade…"
+                  disabled={chatLoading}
+                  className="flex-1 rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm placeholder-gray-400 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-400/20 disabled:opacity-50"
+                />
+                <button
+                  onClick={handleChatSend}
+                  disabled={!chatInput.trim() || chatLoading}
+                  className="flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw className={cn('h-3.5 w-3.5', chatLoading && 'animate-spin')} />
+                  {chatLoading ? '' : 'Enviar'}
+                </button>
+              </div>
+              <p className="mt-2 text-[10px] text-gray-400">O assistente usa o contexto do planejamento preenchido acima para gerar sugestões mais precisas.</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Avatar gradients ─────────────────────────────────────────────────────────
 
 const avatarGradients = [
@@ -2159,11 +2717,35 @@ export default function StudentProfilePage() {
 
   const { user } = useAuth()
   const profile = useStudentProfile(studentId)
-  const { student, lessons, loading, notFound } = profile
+  const { student, lessons, lessonPlans, loading, notFound } = profile
 
   // Support deep-linking via ?tab=progress etc.
   const initialTab = (searchParams.get('tab') as TabId | null) ?? 'overview'
   const [activeTab, setActiveTab] = useState<TabId>(initialTab)
+
+  // ── Missing-planning alert (teacher-only) ─────────────────────────────────
+  const missingPlanningAlert = (() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const nextWeekStart = new Date(today)
+    nextWeekStart.setDate(today.getDate() + 1)
+    const nextWeekEnd = new Date(today)
+    nextWeekEnd.setDate(today.getDate() + 7)
+    const fmt = (d: Date) => d.toISOString().slice(0, 10)
+    const nextWeekLessons = lessons.filter(
+      (l) => l.status === 'agendada' && l.date >= fmt(nextWeekStart) && l.date <= fmt(nextWeekEnd)
+    )
+    if (nextWeekLessons.length === 0) return null
+    const unplanned = nextWeekLessons.filter(
+      (l) => !lessonPlans.some((p) => p.lessonId === l.id) && !getLessonPlanByLessonId(l.id)
+    )
+    if (unplanned.length === 0) return null
+    return {
+      count: unplanned.length,
+      total: nextWeekLessons.length,
+      nextDate: unplanned.sort((a, b) => a.date.localeCompare(b.date))[0].date,
+    }
+  })()
 
   if (loading) {
     return (
@@ -2236,6 +2818,32 @@ export default function StudentProfilePage() {
         </div>
       </div>
 
+      {/* Missing planning alert — teacher only */}
+      {missingPlanningAlert && (
+        <div className="mb-4 flex items-start gap-3 rounded-2xl border border-yellow-200 bg-yellow-50 p-4">
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-600" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-yellow-800">
+              {missingPlanningAlert.count === 1
+                ? 'Falta fazer o planejamento da próxima aula'
+                : `${missingPlanningAlert.count} aulas nos próximos 7 dias sem planejamento`}
+            </p>
+            <p className="mt-0.5 text-xs text-yellow-700">
+              Próxima aula sem planejamento:{' '}
+              {new Date(missingPlanningAlert.nextDate + 'T12:00:00').toLocaleDateString('pt-BR', {
+                weekday: 'long', day: 'numeric', month: 'long',
+              })}
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab('planejamento')}
+            className="flex-shrink-0 rounded-lg bg-yellow-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-yellow-700"
+          >
+            Planejar agora
+          </button>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-gray-100 pb-px">
         {TABS.map((tab) => {
@@ -2265,7 +2873,7 @@ export default function StudentProfilePage() {
       {activeTab === 'progress' && <TabProgress profile={profile} />}
       {activeTab === 'repertoire' && <TabRepertoire profile={profile} />}
       {activeTab === 'notes' && <TabNotes profile={profile} />}
-      {activeTab === 'ai-planner' && <TabAIPlanner profile={profile} />}
+      {activeTab === 'planejamento' && <TabPlanejamento profile={profile} />}
       {activeTab === 'financeiro' && <TabFinanceiro profile={profile} />}
       {activeTab === 'materiais' && (
         <FilesTab studentId={student.id} teacherId={user?.id ?? ''} />

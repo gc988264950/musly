@@ -45,8 +45,24 @@ export default function SignupForm() {
     else if (!/\S+@\S+\.\S+/.test(formData.email)) e.email = 'Informe um e-mail válido'
     if (!formData.password) e.password = 'A senha é obrigatória'
     else if (formData.password.length < 8) e.password = 'A senha deve ter pelo menos 8 caracteres'
+    else if (!/[A-Z]/.test(formData.password)) e.password = 'A senha deve conter pelo menos uma letra maiúscula'
+    else if (!/[0-9]/.test(formData.password)) e.password = 'A senha deve conter pelo menos um número'
     if (!formData.agreeToTerms) e.agreeToTerms = 'Você deve aceitar os termos para continuar'
     return e
+  }
+
+  function getPasswordStrength(pwd: string): { score: number; label: string; color: string } {
+    let score = 0
+    if (pwd.length >= 8) score++
+    if (pwd.length >= 12) score++
+    if (/[A-Z]/.test(pwd)) score++
+    if (/[0-9]/.test(pwd)) score++
+    if (/[^A-Za-z0-9]/.test(pwd)) score++
+    if (score <= 1) return { score, label: 'Muito fraca', color: 'bg-red-500' }
+    if (score === 2) return { score, label: 'Fraca', color: 'bg-orange-500' }
+    if (score === 3) return { score, label: 'Razoável', color: 'bg-yellow-500' }
+    if (score === 4) return { score, label: 'Boa', color: 'bg-blue-500' }
+    return { score, label: 'Forte', color: 'bg-green-500' }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -118,27 +134,47 @@ export default function SignupForm() {
         leftIcon={<Mail className="h-4 w-4" />}
       />
 
-      <Input
-        label="Senha"
-        type={showPassword ? 'text' : 'password'}
-        placeholder="Mínimo 8 caracteres"
-        autoComplete="new-password"
-        value={formData.password}
-        onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
-        error={errors.password}
-        hint={!errors.password ? 'Use pelo menos 8 caracteres' : undefined}
-        leftIcon={<Lock className="h-4 w-4" />}
-        rightElement={
-          <button
-            type="button"
-            onClick={() => setShowPassword((v) => !v)}
-            className="text-gray-400 transition-colors hover:text-gray-600"
-            aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-          >
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        }
-      />
+      <div>
+        <Input
+          label="Senha"
+          type={showPassword ? 'text' : 'password'}
+          placeholder="Mín. 8 caracteres, 1 maiúscula, 1 número"
+          autoComplete="new-password"
+          value={formData.password}
+          onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
+          error={errors.password}
+          leftIcon={<Lock className="h-4 w-4" />}
+          rightElement={
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="text-gray-400 transition-colors hover:text-gray-600"
+              aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+            >
+              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          }
+        />
+        {formData.password && (() => {
+          const strength = getPasswordStrength(formData.password)
+          return (
+            <div className="mt-2 space-y-1">
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div
+                    key={i}
+                    className={`h-1.5 flex-1 rounded-full transition-colors ${i <= strength.score ? strength.color : 'bg-gray-200'}`}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-gray-500">Força da senha: <span className="font-medium">{strength.label}</span></p>
+            </div>
+          )
+        })()}
+        {!errors.password && !formData.password && (
+          <p className="mt-1.5 text-xs text-gray-400">Mín. 8 caracteres, 1 maiúscula e 1 número</p>
+        )}
+      </div>
 
       {/* Instrument */}
       <div>

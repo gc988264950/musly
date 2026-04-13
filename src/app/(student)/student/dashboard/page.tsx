@@ -10,16 +10,13 @@ import {
   FolderOpen,
   ListMusic,
   Music,
-  ChevronRight,
   CreditCard,
   PhoneCall,
-  AlertTriangle,
   CheckCircle2,
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStudentById } from '@/lib/db/students'
-import { getLessons } from '@/lib/db/lessons'
-import { getLessonPlansByStudent } from '@/lib/db/lessonPlans'
+import { getLessons, getLessonsByStudent as getLessonsByStudentDb } from '@/lib/db/lessons'
 import { getStudentFiles } from '@/lib/db/studentFiles'
 import { getFinancialByStudent } from '@/lib/db/financial'
 import { getPaymentForStudentMonth, computeStatusForMonth, getDueDateForMonth } from '@/lib/db/payments'
@@ -71,10 +68,13 @@ export default function StudentDashboardPage() {
 
   const nextLesson = upcomingLessons[0] ?? null
 
-  const recentPlan = useMemo(() => {
-    if (!linkedStudentId) return null
-    const plans = getLessonPlansByStudent(linkedStudentId)
-    return plans[0] ?? null
+  // Show homework from recent concluded lessons (teacher-assigned)
+  const recentHomework = useMemo(() => {
+    if (!linkedStudentId) return []
+    return getLessonsByStudentDb(linkedStudentId)
+      .filter((l) => l.status === 'concluída' && l.homework && l.homework.trim())
+      .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
+      .slice(0, 3)
   }, [linkedStudentId])
 
   const filesCount = useMemo(
@@ -309,40 +309,25 @@ export default function StudentDashboardPage() {
         </div>
       )}
 
-      {/* Recent lesson plan */}
-      {recentPlan && (
+      {/* Tarefas de casa */}
+      {recentHomework.length > 0 && (
         <div className="rounded-2xl border border-gray-100 bg-white p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-[#1a7cfa]" />
-              <span className="text-xs font-semibold uppercase tracking-wide text-[#1a7cfa]">
-                Plano de Aula Recente
-              </span>
-            </div>
-            <Link
-              href="/student/lessons"
-              className="flex items-center gap-0.5 text-xs text-gray-400 hover:text-gray-600"
-            >
-              Ver aulas
-              <ChevronRight size={12} />
-            </Link>
+          <div className="mb-3 flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-[#1a7cfa]" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-[#1a7cfa]">
+              Tarefas de Casa
+            </span>
           </div>
-          <p className="font-semibold text-gray-900">{recentPlan.title}</p>
-          {recentPlan.summary && (
-            <p className="mt-1 text-sm text-gray-500 line-clamp-2">{recentPlan.summary}</p>
-          )}
-          {recentPlan.sections.length > 0 && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {recentPlan.sections.map((s) => (
-                <span
-                  key={s.id}
-                  className="rounded-full bg-[#eef5ff] px-2.5 py-0.5 text-xs font-medium text-[#1a7cfa]"
-                >
-                  {s.emoji} {s.title}
-                </span>
-              ))}
-            </div>
-          )}
+          <div className="space-y-3">
+            {recentHomework.map((lesson) => (
+              <div key={lesson.id} className="rounded-xl border border-[#b0d2ff]/40 bg-[#eef5ff] px-4 py-3">
+                <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                  Aula de {new Date(lesson.date + 'T00:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' })}
+                </p>
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{lesson.homework}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

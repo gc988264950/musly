@@ -7,11 +7,11 @@ import {
   ArrowLeft, Video, Music, Calendar,
   Clock, CheckCircle2, AlertTriangle, TrendingUp, Save,
   Lightbulb, Flag, BookOpen, FileText, Image as ImageIcon,
-  File, Radio,
+  File, Radio, ClipboardList, Send, Plus,
 } from 'lucide-react'
 import { getLessonById, updateLesson } from '@/lib/db/lessons'
 import { getStudentById } from '@/lib/db/students'
-import { getLessonPlansByStudent } from '@/lib/db/lessonPlans'
+import { getLessonPlansByStudent, getLessonPlanByLessonId, getOrCreateLessonPlan, updateLessonPlan } from '@/lib/db/lessonPlans'
 import { getStudentFiles } from '@/lib/db/studentFiles'
 import { MaterialViewerModal } from '@/components/ui/MaterialViewerModal'
 import type { Lesson, LessonPlan, StudentFile } from '@/lib/db/types'
@@ -116,9 +116,25 @@ export default function LessonModePage() {
   const [performanceTags, setPerformanceTags] = useState<string[]>([])
   const [planExpanded, setPlanExpanded] = useState(false)
 
+  // ── Lesson planning ───────────────────────────────────────────────────────
+  const [planPlanId, setPlanPlanId] = useState<string | null>(null)
+  const [planObjective, setPlanObjective] = useState('')
+  const [planContent, setPlanContent] = useState('')
+  const [planExercises, setPlanExercises] = useState('')
+  const [planObservations, setPlanObservations] = useState('')
+  const [planPending, setPlanPending] = useState('')
+  const [planNextLesson, setPlanNextLesson] = useState('')
+  const [planSaved, setPlanSaved] = useState(false)
+  const [showPlanEditor, setShowPlanEditor] = useState(false)
+
   // ── Modals ────────────────────────────────────────────────────────────────
   const [viewerFile, setViewerFile] = useState<StudentFile | null>(null)
   const [showFinishConfirm, setShowFinishConfirm] = useState(false)
+
+  // ── Homework ──────────────────────────────────────────────────────────────
+  const [showHomework, setShowHomework] = useState(false)
+  const [homeworkText, setHomeworkText] = useState('')
+  const [homeworkSent, setHomeworkSent] = useState(false)
 
   // ── Finished state ────────────────────────────────────────────────────────
   const [finished, setFinished] = useState(false)
@@ -144,8 +160,23 @@ export default function LessonModePage() {
       ))
     }
 
-    const plans = getLessonPlansByStudent(l.studentId)
-    if (plans.length > 0) setLessonPlan(plans[0])
+    // Try per-lesson plan first, then fall back to student plans
+    const perLessonPlan = getLessonPlanByLessonId(l.id)
+    if (perLessonPlan) {
+      setLessonPlan(perLessonPlan)
+      setPlanPlanId(perLessonPlan.id)
+      setPlanObjective(perLessonPlan.planObjective ?? '')
+      setPlanContent(perLessonPlan.planContent ?? '')
+      setPlanExercises(perLessonPlan.planExercises ?? '')
+      setPlanObservations(perLessonPlan.planObservations ?? '')
+      setPlanPending(perLessonPlan.planPending ?? '')
+      setPlanNextLesson(perLessonPlan.planNextLesson ?? '')
+      // Always open the editor when a linked plan exists
+      setShowPlanEditor(true)
+    } else {
+      const plans = getLessonPlansByStudent(l.studentId)
+      if (plans.length > 0) setLessonPlan(plans[0])
+    }
 
     // Restore notes from localStorage
     const savedNotes = localStorage.getItem(`harmoniq_session_notes_${lessonId}`)
@@ -194,6 +225,31 @@ export default function LessonModePage() {
     )
   }, [])
 
+  // ── Save lesson planning blocks ───────────────────────────────────────────
+  function savePlanBlocks() {
+    if (!lesson || !studentId) return
+    try {
+      const plan = getOrCreateLessonPlan({
+        lessonId: lesson.id,
+        studentId,
+        teacherId: lesson.teacherId,
+      })
+      updateLessonPlan(plan.id, {
+        planObjective,
+        planContent,
+        planExercises,
+        planObservations,
+        planPending,
+        planNextLesson,
+      })
+      setPlanPlanId(plan.id)
+      setPlanSaved(true)
+      setTimeout(() => setPlanSaved(false), 2000)
+    } catch {
+      // ignore
+    }
+  }
+
   // ── Finish lesson ─────────────────────────────────────────────────────────
   function confirmFinish() {
     if (!lesson) return
@@ -201,20 +257,29 @@ export default function LessonModePage() {
     setFinalDuration(duration)
     setTimerRunning(false)
     setShowFinishConfirm(false)
+    // Show homework step before completing
+    setShowHomework(true)
+  }
 
+  function doFinish(homework: string) {
+    if (!lesson) return
     try {
-      updateLesson(lesson.id, {
+      const updated = updateLesson(lesson.id, {
         status: 'concluída',
         notes: notes.trim(),
         performanceTags,
+        homework: homework.trim(),
+        homeworkSentAt: homework.trim() ? new Date().toISOString() : null,
       })
+      setLesson(updated)
       localStorage.removeItem(`harmoniq_session_notes_${lessonId}`)
       localStorage.removeItem(`harmoniq_lesson_start_${lessonId}`)
     } catch {
       // If lesson was already deleted, still show feedback
     }
-
     setFeedback(buildFeedback(performanceTags, notes))
+    setHomeworkSent(!!homework.trim())
+    setShowHomework(false)
     setFinished(true)
   }
 
@@ -292,6 +357,17 @@ export default function LessonModePage() {
                   <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">Anotações salvas</p>
                   <p className="rounded-xl border border-gray-100 bg-gray-50 px-3.5 py-2.5 text-sm text-gray-700 whitespace-pre-wrap">
                     {notes.trim()}
+                  </p>
+                </div>
+              )}
+
+              {homeworkSent && lesson?.homework && (
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400 flex items-center gap-1">
+                    <ClipboardList className="h-3 w-3" /> Tarefa de casa atribuída
+                  </p>
+                  <p className="rounded-xl border border-[#b0d2ff]/50 bg-[#eef5ff] px-3.5 py-2.5 text-sm text-[#1057b0] whitespace-pre-wrap">
+                    {lesson.homework}
                   </p>
                 </div>
               )}
@@ -437,8 +513,87 @@ export default function LessonModePage() {
             </div>
           )}
 
-          {/* Lesson plan (collapsible) */}
-          {lessonPlan && (
+          {/* Lesson planning editor */}
+          <div className={cn(
+            'rounded-2xl border bg-white shadow-card overflow-hidden',
+            showPlanEditor ? 'border-[#1a7cfa]/30' : 'border-gray-100'
+          )}>
+            <button
+              onClick={() => setShowPlanEditor((v) => !v)}
+              className={cn(
+                'flex w-full items-center justify-between px-5 py-4 text-left transition-colors',
+                showPlanEditor ? 'bg-[#eef5ff]' : 'hover:bg-gray-50'
+              )}
+            >
+              <div className="flex items-center gap-2">
+                <ClipboardList className={cn('h-4 w-4', showPlanEditor ? 'text-[#1a7cfa]' : 'text-gray-400')} />
+                <span className="text-sm font-semibold text-gray-900">Planejamento da aula</span>
+                {planPlanId ? (
+                  <span className="rounded-full bg-[#1a7cfa] px-2 py-0.5 text-[10px] font-semibold text-white">Carregado</span>
+                ) : (
+                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-500">Novo</span>
+                )}
+              </div>
+              <span className="text-xs text-gray-400">{showPlanEditor ? 'Recolher' : 'Expandir'}</span>
+            </button>
+            {showPlanEditor && (
+              <div className="border-t border-gray-100 px-5 pb-5 pt-4 space-y-4">
+                {/* Esta aula */}
+                {[
+                  { label: '🎯 Objetivo da aula', value: planObjective, onChange: setPlanObjective, placeholder: 'O que o aluno vai aprender ou praticar hoje?' },
+                  { label: '📚 Conteúdo', value: planContent, onChange: setPlanContent, placeholder: 'Repertório, teoria, técnica…' },
+                  { label: '🏋️ Exercícios', value: planExercises, onChange: setPlanExercises, placeholder: 'Exercícios, escalas, estudos…' },
+                  { label: '📝 Observações', value: planObservations, onChange: setPlanObservations, placeholder: 'Anotações pedagógicas, pontos de atenção…' },
+                ].map(({ label, value, onChange, placeholder }) => (
+                  <div key={label}>
+                    <label className="mb-1.5 block text-xs font-semibold text-gray-600">{label}</label>
+                    <textarea
+                      rows={2}
+                      value={value}
+                      onChange={(e) => onChange(e.target.value)}
+                      placeholder={placeholder}
+                      className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                ))}
+                {/* Continuidade */}
+                <div className="border-t border-gray-100 pt-3">
+                  <p className="mb-3 text-[10px] font-bold uppercase tracking-wide text-gray-400">Continuidade</p>
+                  {[
+                    { label: '⏳ O que ficou pendente', value: planPending, onChange: setPlanPending, placeholder: 'Conteúdo ou exercícios que não foram concluídos…' },
+                    { label: '➡️ Próxima aula', value: planNextLesson, onChange: setPlanNextLesson, placeholder: 'O que deve acontecer na próxima aula…' },
+                  ].map(({ label, value, onChange, placeholder }) => (
+                    <div key={label} className="mb-3 last:mb-0">
+                      <label className="mb-1.5 block text-xs font-semibold text-gray-600">{label}</label>
+                      <textarea
+                        rows={2}
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        placeholder={placeholder}
+                        className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2 justify-end">
+                  {planSaved && (
+                    <span className="flex items-center gap-1 text-xs text-green-600">
+                      <Save className="h-3 w-3" /> Planejamento salvo
+                    </span>
+                  )}
+                  <button
+                    onClick={savePlanBlocks}
+                    className="flex items-center gap-1.5 rounded-lg bg-[#1a7cfa] px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-[#1468d6]"
+                  >
+                    <Save className="h-3.5 w-3.5" /> Salvar planejamento
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Legacy AI plan (collapsible, shown only if it exists) */}
+          {lessonPlan && lessonPlan.sections.length > 0 && (
             <div className="rounded-2xl border border-gray-100 bg-white shadow-card overflow-hidden">
               <button
                 onClick={() => setPlanExpanded((v) => !v)}
@@ -446,7 +601,7 @@ export default function LessonModePage() {
               >
                 <div className="flex items-center gap-2">
                   <Flag className="h-4 w-4 text-[#1a7cfa]" />
-                  <span className="text-sm font-semibold text-gray-900">Plano de aula atual</span>
+                  <span className="text-sm font-semibold text-gray-900">Plano IA</span>
                 </div>
                 <span className="text-xs text-gray-400 truncate max-w-[180px]">{lessonPlan.title}</span>
               </button>
@@ -564,7 +719,7 @@ export default function LessonModePage() {
             <p className="mt-3 text-sm text-gray-600 leading-relaxed">
               Tem certeza que deseja finalizar esta aula? A aula será marcada como concluída e o timer será encerrado.
             </p>
-            {(performanceTags.length === 0) && (
+            {performanceTags.length === 0 && (
               <p className="mt-2 text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
                 Nenhuma tag de performance selecionada. Você ainda pode adicionar antes de finalizar.
               </p>
@@ -581,6 +736,46 @@ export default function LessonModePage() {
                 className="flex-1 rounded-xl bg-[#1a7cfa] hover:bg-[#1468d6] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               >
                 Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Homework modal — shown between finish confirmation and final screen */}
+      {showHomework && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef5ff]">
+                <ClipboardList className="h-5 w-5 text-[#1a7cfa]" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-gray-900">Tarefa de casa</h2>
+                <p className="text-xs text-gray-400">Atribuir antes de finalizar</p>
+              </div>
+            </div>
+            <textarea
+              rows={4}
+              value={homeworkText}
+              onChange={(e) => setHomeworkText(e.target.value)}
+              placeholder="Ex: Praticar escalas maiores por 10 minutos diários, estudar compassos 1–8 da música…"
+              className="block w-full resize-none rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2.5 text-sm placeholder-gray-400 transition-colors focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+            <div className="mt-5 flex gap-3">
+              <button
+                onClick={() => doFinish('')}
+                className="flex-1 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                Pular
+              </button>
+              <button
+                onClick={() => doFinish(homeworkText)}
+                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-[#1a7cfa] hover:bg-[#1468d6] py-2.5 text-sm font-semibold text-white transition-colors"
+              >
+                <Send className="h-4 w-4" />
+                {homeworkText.trim() ? 'Salvar e finalizar' : 'Finalizar sem tarefa'}
               </button>
             </div>
           </div>

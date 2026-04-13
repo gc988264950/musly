@@ -138,6 +138,23 @@ export default function LoginForm() {
           Cadastre-se grátis
         </Link>
       </p>
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-gray-100" />
+        </div>
+        <div className="relative flex justify-center text-xs text-gray-400">
+          <span className="bg-white px-3">Acesso para alunos</span>
+        </div>
+      </div>
+
+      <Link
+        href="/student-login"
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+      >
+        <span className="text-base">🎓</span>
+        Sou aluno — entrar no portal
+      </Link>
     </form>
   )
 }

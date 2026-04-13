@@ -4,15 +4,16 @@
  * MaterialViewerModal — fullscreen interactive material viewer.
  *
  * Annotation tools (teacher-only):
- *   pen · highlighter · circle · text · eraser · clear
- *   with color presets and three stroke thicknesses.
+ *   pen · highlighter · circle · text · eraser · undo · clear
  *
- * Persistence: annotations saved per fileId+page in localStorage.
+ * Text items are stored as JSON overlay elements (NOT rasterised to canvas),
+ * which allows edit-in-place, drag-to-reposition, and delete.
+ * All other drawing tools write directly to the annotation canvas as before.
  *
- * Key fix carried from previous version:
- *   The annotation canvas lives inside a {!loading && …} block.
- *   Using a state-based callback ref (useState setter as ref=) ensures the
- *   drawing useEffect re-runs the moment the canvas actually mounts.
+ * Persistence:
+ *   drawing canvas  → harmoniq_annotations_{fileId}_{page}  (data URL)
+ *   text items      → harmoniq_texts_{fileId}_{page}         (JSON)
+ * Undo: per-page ImageData stack for drawing (up to 20 steps).
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
@@ -21,7 +22,7 @@ import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
   Pencil, Eraser, Trash2, Loader2, BookOpen,
-  Highlighter, Circle, Type,
+  Highlighter, Circle, Type, Undo2,
 } from 'lucide-react'
 import { getFileBlob } from '@/lib/db/fileStorage'
 import type { StudentFile } from '@/lib/db/types'
@@ -34,7 +35,7 @@ if (typeof window !== 'undefined') {
     `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`
 }
 
-// ─── Annotation persistence ───────────────────────────────────────────────
+// ─── Annotation persistence (canvas) ─────────────────────────────────────
 
 const annotKey = (fileId: string, page: number) =>
   `harmoniq_annotations_${fileId}_${page}`
@@ -56,30 +57,60 @@ function dropAnnotation(fileId: string, page: number) {
   localStorage.removeItem(annotKey(fileId, page))
 }
 
+// ─── Text item persistence ────────────────────────────────────────────────
+
+interface TextItem {
+  id: string
+  /** Fraction 0–1 of canvas CSS width */
+  xFrac: number
+  /** Fraction 0–1 of canvas CSS height */
+  yFrac: number
+  text: string
+  color: string
+  /** CSS font-size in px */
+  fontSize: number
+}
+
+const textKey = (fileId: string, page: number) =>
+  `harmoniq_texts_${fileId}_${page}`
+
+function persistTextItems(fileId: string, page: number, items: TextItem[]) {
+  try {
+    if (items.length === 0) localStorage.removeItem(textKey(fileId, page))
+    else localStorage.setItem(textKey(fileId, page), JSON.stringify(items))
+  } catch { /* quota */ }
+}
+
+function loadTextItems(fileId: string, page: number): TextItem[] {
+  try {
+    const raw = localStorage.getItem(textKey(fileId, page))
+    return raw ? (JSON.parse(raw) as TextItem[]) : []
+  } catch { return [] }
+}
+
+function dropTextItems(fileId: string, page: number) {
+  localStorage.removeItem(textKey(fileId, page))
+}
+
 // ─── Tool config ──────────────────────────────────────────────────────────
 
 type Tool = 'pen' | 'highlighter' | 'circle' | 'text' | 'eraser'
 
 const TOOLS: { id: Tool; icon: React.ElementType; label: string }[] = [
-  { id: 'pen',         icon: Pencil,      label: 'Caneta'     },
-  { id: 'highlighter', icon: Highlighter, label: 'Grifar'     },
-  { id: 'circle',      icon: Circle,      label: 'Círculo'    },
-  { id: 'text',        icon: Type,        label: 'Texto'      },
-  { id: 'eraser',      icon: Eraser,      label: 'Borracha'   },
+  { id: 'pen',         icon: Pencil,      label: 'Caneta'   },
+  { id: 'highlighter', icon: Highlighter, label: 'Grifar'   },
+  { id: 'circle',      icon: Circle,      label: 'Círculo'  },
+  { id: 'text',        icon: Type,        label: 'Texto'    },
+  { id: 'eraser',      icon: Eraser,      label: 'Borracha' },
 ]
 
 const PRESET_COLORS = [
-  '#ef4444', // red
-  '#f97316', // orange
-  '#eab308', // yellow
-  '#22c55e', // green
-  '#3b82f6', // blue
-  '#8b5cf6', // purple
-  '#000000', // black
-  '#ffffff', // white
+  '#ef4444', '#f97316', '#eab308', '#22c55e',
+  '#3b82f6', '#8b5cf6', '#000000', '#ffffff',
 ]
 
 const STROKE_WIDTHS: Record<'sm' | 'md' | 'lg', number> = { sm: 2, md: 5, lg: 10 }
+const TEXT_FONT_SIZES: Record<'sm' | 'md' | 'lg', number> = { sm: 16, md: 22, lg: 30 }
 
 type StrokeSize = 'sm' | 'md' | 'lg'
 
@@ -87,7 +118,6 @@ type StrokeSize = 'sm' | 'md' | 'lg'
 
 export interface MaterialViewerModalProps {
   file: StudentFile
-  /** Pass false for student view — hides all annotation controls. */
   isTeacher: boolean
   onClose: () => void
 }
@@ -95,8 +125,8 @@ export interface MaterialViewerModalProps {
 // ─── Component ────────────────────────────────────────────────────────────
 
 export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewerModalProps) {
-  const isPDF     = file.mimeType === 'application/pdf'
-  const isImage   = file.mimeType.startsWith('image/')
+  const isPDF      = file.mimeType === 'application/pdf'
+  const isImage    = file.mimeType.startsWith('image/')
   const canAnnotate = isTeacher && (isPDF || isImage)
 
   // ── Core state ───────────────────────────────────────────────────────
@@ -111,20 +141,28 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
   const [totalPages,  setTotalPages]  = useState(0)
   const [scale,       setScale]       = useState(1.3)
 
-  // ── Annotation state ─────────────────────────────────────────────────
-  const [tool,        setTool]       = useState<Tool>('pen')
-  const [color,       setColor]      = useState('#ef4444')
-  const [strokeSize,  setStrokeSize] = useState<StrokeSize>('md')
-  const [textInput, setTextInput] = useState<{
-    canvasX: number; canvasY: number; cssX: number; cssY: number; value: string
-  } | null>(null)
+  // ── Drawing annotation state ─────────────────────────────────────────
+  const [tool,       setTool]       = useState<Tool>('pen')
+  const [color,      setColor]      = useState('#ef4444')
+  const [strokeSize, setStrokeSize] = useState<StrokeSize>('md')
+
+  // ── Text item state ──────────────────────────────────────────────────
+  const [textItems, setTextItems] = useState<TextItem[]>([])
+  const [editingId, setEditingId] = useState<string | null>(null)
+  // Keep a ref so closures (drag handlers) always see the latest items
+  const textItemsRef = useRef<TextItem[]>([])
+  useEffect(() => { textItemsRef.current = textItems }, [textItems])
+
+  // ── Undo stack ───────────────────────────────────────────────────────
+  const undoStackRef = useRef<ImageData[]>([])
+  const [hasUndo, setHasUndo] = useState(false)
 
   // ── Canvas refs ──────────────────────────────────────────────────────
   const pdfCanvasRef  = useRef<HTMLCanvasElement>(null)
   const imageRef      = useRef<HTMLImageElement>(null)
   const renderTaskRef = useRef<RenderTask | null>(null)
 
-  // STATE-BASED callback ref: annotCanvas updates trigger dependent effects
+  // STATE-BASED callback ref so drawing useEffect re-fires when canvas mounts
   const [annotCanvas, setAnnotCanvas] = useState<HTMLCanvasElement | null>(null)
 
   // ── Mutable refs for event-handler closures ───────────────────────────
@@ -133,15 +171,23 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
   const strokeSizeRef  = useRef<StrokeSize>('md')
   const currentPageRef = useRef(1)
   const fileIdRef      = useRef(file.id)
-  // Circle preview
   const circleStartRef    = useRef<{ x: number; y: number } | null>(null)
   const circleSnapshotRef = useRef<ImageData | null>(null)
+  const setHasUndoRef  = useRef(setHasUndo) // stable setter ref for use inside events
 
   useEffect(() => { toolRef.current        = tool        }, [tool])
   useEffect(() => { colorRef.current       = color       }, [color])
   useEffect(() => { strokeSizeRef.current  = strokeSize  }, [strokeSize])
   useEffect(() => { currentPageRef.current = currentPage }, [currentPage])
   useEffect(() => { fileIdRef.current      = file.id     }, [file.id])
+
+  // ── Reset undo + text items when page changes ─────────────────────────
+  useEffect(() => {
+    undoStackRef.current = []
+    setHasUndo(false)
+    setEditingId(null)
+    setTextItems(loadTextItems(file.id, currentPage))
+  }, [file.id, currentPage])
 
   // ── Load blob from IndexedDB ─────────────────────────────────────────
   useEffect(() => {
@@ -176,7 +222,7 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
       if (renderTaskRef.current) { renderTaskRef.current.cancel(); renderTaskRef.current = null }
       const page = await doc.getPage(pageNum)
       const viewport = page.getViewport({ scale: sc })
-      pdfCanvas.width = viewport.width;  pdfCanvas.height = viewport.height
+      pdfCanvas.width = viewport.width;   pdfCanvas.height = viewport.height
       annotCanvas.width = viewport.width; annotCanvas.height = viewport.height
       const task = page.render({ canvasContext: pdfCanvas.getContext('2d')!, viewport })
       renderTaskRef.current = task
@@ -211,6 +257,8 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
   const goToPage = useCallback((newPage: number) => {
     if (newPage < 1 || newPage > totalPages) return
     if (annotCanvas) persistAnnotation(file.id, currentPageRef.current, annotCanvas)
+    // Persist text items for the current page before switching
+    persistTextItems(file.id, currentPageRef.current, textItemsRef.current)
     setCurrentPage(newPage)
   }, [file.id, totalPages, annotCanvas])
 
@@ -221,79 +269,183 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
   const zoomIn  = () => setScale(s => Math.min(3.0, parseFloat((s + 0.2).toFixed(1))))
   const zoomOut = () => setScale(s => Math.max(0.5, parseFloat((s - 0.2).toFixed(1))))
 
-  // ── Clear page annotations ───────────────────────────────────────────
+  // ── Undo helpers (drawing canvas only) ───────────────────────────────
+  function pushUndoSnapshot(canvas: HTMLCanvasElement) {
+    const ctx = canvas.getContext('2d')!
+    const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    undoStackRef.current.push(snapshot)
+    if (undoStackRef.current.length > 20) undoStackRef.current.shift()
+    setHasUndo(true)
+  }
+
+  const undo = useCallback(() => {
+    if (!annotCanvas || undoStackRef.current.length === 0) return
+    const snapshot = undoStackRef.current.pop()!
+    annotCanvas.getContext('2d')!.putImageData(snapshot, 0, 0)
+    setHasUndo(undoStackRef.current.length > 0)
+    persistAnnotation(fileIdRef.current, currentPageRef.current, annotCanvas)
+  }, [annotCanvas])
+
+  const undoRef = useRef(undo)
+  useEffect(() => { undoRef.current = undo }, [undo])
+
+  // ── Clear ALL annotations + text items on this page ──────────────────
   function clearAnnotations() {
     if (!annotCanvas) return
+    pushUndoSnapshot(annotCanvas)
     annotCanvas.getContext('2d')!.clearRect(0, 0, annotCanvas.width, annotCanvas.height)
     dropAnnotation(file.id, currentPageRef.current)
+    setTextItems([])
+    setEditingId(null)
+    dropTextItems(file.id, currentPageRef.current)
   }
 
-  // ── Text tool: place text on click ───────────────────────────────────
+  // ── Text item helpers ─────────────────────────────────────────────────
+
+  /** Create a new text item at a fractional position, open it for editing. */
+  function createTextItem(xFrac: number, yFrac: number) {
+    const newItem: TextItem = {
+      id:       `txt_${Date.now()}`,
+      xFrac:    Math.max(0, Math.min(0.95, xFrac)),
+      yFrac:    Math.max(0, Math.min(0.95, yFrac)),
+      text:     '',
+      color,
+      fontSize: TEXT_FONT_SIZES[strokeSize],
+    }
+    setTextItems(prev => [...prev, newItem])
+    setEditingId(newItem.id)
+  }
+
+  function updateItemText(id: string, text: string) {
+    setTextItems(prev => prev.map(t => t.id === id ? { ...t, text } : t))
+  }
+
+  /** Called when the input blurs or Escape/Enter pressed — commit or discard. */
+  function commitItem(id: string) {
+    setTextItems(prev => {
+      const item = prev.find(t => t.id === id)
+      const next = item && item.text.trim() ? prev : prev.filter(t => t.id !== id)
+      persistTextItems(fileIdRef.current, currentPageRef.current, next)
+      return next
+    })
+    setEditingId(null)
+  }
+
+  function deleteItem(id: string) {
+    setTextItems(prev => {
+      const next = prev.filter(t => t.id !== id)
+      persistTextItems(fileIdRef.current, currentPageRef.current, next)
+      return next
+    })
+    if (editingId === id) setEditingId(null)
+  }
+
+  /**
+   * Mouse-down on a text item div.
+   * Small movement → open for editing.
+   * Large movement → drag to reposition.
+   */
+  function startDragOrEdit(e: React.MouseEvent, itemId: string) {
+    if (editingId === itemId) return // already in edit mode
+    e.stopPropagation()
+    e.preventDefault()
+
+    const startX   = e.clientX
+    const startY   = e.clientY
+    const origItem = textItemsRef.current.find(t => t.id === itemId)
+    if (!origItem) return
+    const origXFrac = origItem.xFrac
+    const origYFrac = origItem.yFrac
+    let moved = false
+
+    // Capture annotCanvas for drag calculations — stable for the duration of a drag
+    const canvas = annotCanvas
+
+    function onMove(me: MouseEvent) {
+      const dx = me.clientX - startX
+      const dy = me.clientY - startY
+      if (!moved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) moved = true
+      if (!moved || !canvas) return
+      const rect = canvas.getBoundingClientRect()
+      const newXFrac = Math.max(0, Math.min(0.95, origXFrac + dx / rect.width))
+      const newYFrac = Math.max(0, Math.min(0.95, origYFrac + dy / rect.height))
+      setTextItems(items =>
+        items.map(t => t.id === itemId ? { ...t, xFrac: newXFrac, yFrac: newYFrac } : t)
+      )
+    }
+
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup',   onUp)
+      if (!moved) {
+        // Treated as a click → open editor
+        setEditingId(itemId)
+      } else {
+        // Persist final position
+        persistTextItems(fileIdRef.current, currentPageRef.current, textItemsRef.current)
+      }
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup',   onUp)
+  }
+
+  // ── Canvas click: create text item or ignore ──────────────────────────
   function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
     if (tool !== 'text' || !canAnnotate || !annotCanvas) return
-    const rect = annotCanvas.getBoundingClientRect()
-    const sx = annotCanvas.width  / rect.width
-    const sy = annotCanvas.height / rect.height
-    setTextInput({
-      canvasX: (e.clientX - rect.left) * sx,
-      canvasY: (e.clientY - rect.top)  * sy,
-      cssX: e.clientX - rect.left,
-      cssY: e.clientY - rect.top,
-      value: '',
-    })
+    const rect   = annotCanvas.getBoundingClientRect()
+    const xFrac  = (e.clientX - rect.left) / rect.width
+    const yFrac  = (e.clientY - rect.top)  / rect.height
+    createTextItem(xFrac, yFrac)
   }
 
-  function confirmText() {
-    if (!textInput || !annotCanvas) return
-    if (textInput.value.trim()) {
-      const ctx = annotCanvas.getContext('2d')!
-      const fontSize = STROKE_WIDTHS[strokeSize] * 5 + 10
-      ctx.globalCompositeOperation = 'source-over'
-      ctx.font  = `bold ${fontSize}px sans-serif`
-      ctx.fillStyle = color
-      ctx.fillText(textInput.value, textInput.canvasX, textInput.canvasY)
-      persistAnnotation(file.id, currentPageRef.current, annotCanvas)
-    }
-    setTextInput(null)
-  }
-
-  // ── Drawing event listeners ──────────────────────────────────────────
-  // Re-runs when `annotCanvas` state changes (canvas mounts → effect fires)
+  // ── Drawing event listeners (pen / highlighter / circle / eraser) ─────
   useEffect(() => {
     if (!annotCanvas || !canAnnotate) return
-    const canvas: HTMLCanvasElement = annotCanvas // narrow to non-null for inner fns
+    const canvas: HTMLCanvasElement = annotCanvas
 
     let drawing = false
     let lastX = 0; let lastY = 0
+    let rafId = 0
+    let pendingX = 0; let pendingY = 0
+    let hasPending = false
 
     function getPos(e: MouseEvent | TouchEvent) {
-      const rect = canvas.getBoundingClientRect()
+      const rect    = canvas.getBoundingClientRect()
       const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
       const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-      const sx = canvas.width / rect.width; const sy = canvas.height / rect.height
+      const sx = canvas.width  / rect.width
+      const sy = canvas.height / rect.height
       return { x: (clientX - rect.left) * sx, y: (clientY - rect.top) * sy }
     }
 
     function onStart(e: MouseEvent | TouchEvent) {
       e.preventDefault()
+      if (toolRef.current === 'text') return // text items handled by React overlay
+
       const { x, y } = getPos(e)
-      if (toolRef.current === 'text') return // handled by React onClick
+      // Save undo snapshot before each stroke
+      const ctx      = canvas.getContext('2d')!
+      const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      undoStackRef.current.push(snapshot)
+      if (undoStackRef.current.length > 20) undoStackRef.current.shift()
+      setHasUndoRef.current(true)
+
       drawing = true; lastX = x; lastY = y
       if (toolRef.current === 'circle') {
-        circleStartRef.current = { x, y }
-        circleSnapshotRef.current = canvas.getContext('2d')!
-          .getImageData(0, 0, canvas.width, canvas.height)
+        circleStartRef.current    = { x, y }
+        circleSnapshotRef.current = ctx.getImageData(0, 0, canvas.width, canvas.height)
       }
     }
 
-    function onMove(e: MouseEvent | TouchEvent) {
-      if (!drawing) return
-      e.preventDefault()
+    function drawFrame() {
+      if (!hasPending || !drawing) return
+      hasPending = false
       const ctx = canvas.getContext('2d')!
-      const { x, y } = getPos(e)
-      const t = toolRef.current
-      const c = colorRef.current
-      const w = STROKE_WIDTHS[strokeSizeRef.current]
+      const x   = pendingX; const y = pendingY
+      const t   = toolRef.current
+      const c   = colorRef.current
+      const w   = STROKE_WIDTHS[strokeSizeRef.current]
 
       ctx.lineCap = 'round'; ctx.lineJoin = 'round'
 
@@ -318,7 +470,6 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
         ctx.globalCompositeOperation = 'source-over'
 
       } else if (t === 'circle' && circleStartRef.current && circleSnapshotRef.current) {
-        // Restore snapshot to erase previous preview frame
         ctx.putImageData(circleSnapshotRef.current, 0, 0)
         const { x: sx, y: sy } = circleStartRef.current
         const rx = Math.abs(x - sx) / 2; const ry = Math.abs(y - sy) / 2
@@ -334,9 +485,21 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
       lastX = x; lastY = y
     }
 
+    function onMove(e: MouseEvent | TouchEvent) {
+      if (!drawing) return
+      e.preventDefault()
+      const { x, y } = getPos(e)
+      pendingX = x; pendingY = y; hasPending = true
+      cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(drawFrame)
+    }
+
     function onEnd() {
       if (!drawing) return
       drawing = false
+      cancelAnimationFrame(rafId)
+      if (hasPending) drawFrame()
+      hasPending = false
       circleStartRef.current = null; circleSnapshotRef.current = null
       persistAnnotation(fileIdRef.current, currentPageRef.current, canvas)
     }
@@ -350,6 +513,7 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
     canvas.addEventListener('touchend',   onEnd)
 
     return () => {
+      cancelAnimationFrame(rafId)
       canvas.removeEventListener('mousedown',  onStart)
       canvas.removeEventListener('mousemove',  onMove)
       canvas.removeEventListener('mouseup',    onEnd)
@@ -363,19 +527,26 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
   // ── Keyboard shortcuts ────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape')     { if (textInput) { setTextInput(null); return } onClose(); return }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault(); undoRef.current(); return
+      }
+      if (e.key === 'Escape') {
+        if (editingId !== null) { setEditingId(null); return }
+        onClose(); return
+      }
+      // Don't fire page nav when focus is inside an input or textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === 'ArrowLeft')  goToPageRef.current(currentPageRef.current - 1)
       if (e.key === 'ArrowRight') goToPageRef.current(currentPageRef.current + 1)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, textInput])
+  }, [onClose, editingId])
 
-  // ── Cursor style ──────────────────────────────────────────────────────
+  // ── Cursor style on annotation canvas ────────────────────────────────
   const cursorClass = canAnnotate
-    ? tool === 'text'    ? 'cursor-text'
-    : tool === 'eraser'  ? 'cursor-cell'
-    : tool === 'circle'  ? 'cursor-crosshair'
+    ? tool === 'text'   ? 'cursor-crosshair' // clicking canvas creates a new item
+    : tool === 'eraser' ? 'cursor-cell'
     : 'cursor-crosshair'
     : 'pointer-events-none'
 
@@ -394,15 +565,37 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
         {isPDF && totalPages > 0 && (
           <>
             <div className="h-4 w-px bg-white/20" />
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1}
                 className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
                 title="Anterior (←)">
                 <ChevronLeft size={16} />
               </button>
-              <span className="min-w-[3.5rem] text-center text-xs font-medium text-gray-300 tabular-nums">
-                {currentPage} / {totalPages}
-              </span>
+
+              <div className="flex items-center gap-1 text-xs text-gray-300 tabular-nums">
+                <input
+                  key={currentPage}
+                  type="number"
+                  defaultValue={currentPage}
+                  min={1}
+                  max={totalPages}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      const n = parseInt((e.target as HTMLInputElement).value)
+                      if (!isNaN(n)) goToPage(n)
+                      ;(e.target as HTMLInputElement).blur()
+                    }
+                  }}
+                  onBlur={e => {
+                    const n = parseInt(e.target.value)
+                    if (!isNaN(n) && n !== currentPage) goToPage(n)
+                  }}
+                  className="w-10 rounded bg-white/10 px-1.5 py-0.5 text-center text-xs font-medium text-white outline-none focus:ring-1 focus:ring-blue-400 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <span className="text-gray-500">/</span>
+                <span className="font-medium">{totalPages}</span>
+              </div>
+
               <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= totalPages}
                 className="rounded-lg p-1.5 text-gray-400 hover:bg-white/10 hover:text-white disabled:opacity-30"
                 title="Próxima (→)">
@@ -443,11 +636,12 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
 
       {/* ── Row 2: annotation toolbar (teacher only) ─────────────────────── */}
       {canAnnotate && (
-        <div className="flex flex-shrink-0 items-center gap-3 overflow-x-auto border-b border-white/10 bg-[#0f172a] px-4 py-2">
-          {/* Drawing tools */}
+        <div className="flex flex-shrink-0 items-center gap-2 overflow-x-auto border-b border-white/10 bg-[#0f172a] px-4 py-2">
+
+          {/* Tool buttons */}
           <div className="flex items-center gap-0.5">
             {TOOLS.map(({ id, icon: Icon, label }) => (
-              <button key={id} onClick={() => setTool(id)}
+              <button key={id} onClick={() => { setTool(id); if (id !== 'text') setEditingId(null) }}
                 className={cn(
                   'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
                   tool === id
@@ -479,11 +673,11 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
 
           <div className="h-4 w-px flex-shrink-0 bg-white/20" />
 
-          {/* Stroke thickness */}
+          {/* Stroke / text size */}
           <div className="flex items-center gap-1">
             {(['sm', 'md', 'lg'] as StrokeSize[]).map((s) => (
               <button key={s} onClick={() => setStrokeSize(s)}
-                title={s === 'sm' ? 'Fino' : s === 'md' ? 'Médio' : 'Grosso'}
+                title={s === 'sm' ? 'Fino / Pequeno' : s === 'md' ? 'Médio' : 'Grosso / Grande'}
                 className={cn(
                   'flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg transition-colors',
                   strokeSize === s
@@ -492,7 +686,7 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
                 )}>
                 <div className="rounded-full bg-current"
                   style={{
-                    width: s === 'sm' ? 4 : s === 'md' ? 6 : 10,
+                    width:  s === 'sm' ? 4 : s === 'md' ? 6 : 10,
                     height: s === 'sm' ? 4 : s === 'md' ? 6 : 10,
                   }} />
               </button>
@@ -501,10 +695,25 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
 
           <div className="h-4 w-px flex-shrink-0 bg-white/20" />
 
+          {/* Undo */}
+          <button onClick={() => undoRef.current()} disabled={!hasUndo}
+            title="Desfazer traço (Ctrl+Z)"
+            className={cn(
+              'flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors whitespace-nowrap',
+              hasUndo
+                ? 'text-gray-400 hover:bg-white/10 hover:text-white'
+                : 'cursor-not-allowed text-gray-600 opacity-40'
+            )}>
+            <Undo2 size={13} />
+            <span className="hidden md:inline">Desfazer</span>
+          </button>
+
+          <div className="h-4 w-px flex-shrink-0 bg-white/20" />
+
           {/* Clear */}
           <button onClick={clearAnnotations}
             className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-medium text-gray-400 hover:bg-red-500/20 hover:text-red-400 whitespace-nowrap"
-            title="Limpar anotações desta página">
+            title="Limpar todas as anotações desta página">
             <Trash2 size={13} />
             <span className="hidden md:inline">Limpar</span>
           </button>
@@ -526,7 +735,7 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
         )}
         {!loading && !error && (
           <div className="flex min-h-full items-start justify-center p-6">
-            {/* Canvas container */}
+            {/* Canvas + text overlay container */}
             <div className="relative inline-block shadow-2xl">
 
               {isPDF && <canvas ref={pdfCanvasRef} className="block" />}
@@ -536,7 +745,7 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
                 <img ref={imageRef} src={objectUrl} alt={file.name} className="block max-w-4xl" />
               )}
 
-              {/* Annotation canvas — callback ref triggers drawing effect when it mounts */}
+              {/* Drawing annotation canvas */}
               {(isPDF || isImage) && (
                 <canvas
                   ref={setAnnotCanvas}
@@ -546,31 +755,107 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
                 />
               )}
 
-              {/* Text input overlay */}
-              {textInput && (
-                <div style={{ position: 'absolute', left: textInput.cssX, top: textInput.cssY, zIndex: 20 }}>
-                  <input
-                    autoFocus
-                    value={textInput.value}
-                    onChange={e => setTextInput(t => t ? { ...t, value: e.target.value } : null)}
-                    onKeyDown={e => { if (e.key === 'Enter') confirmText(); if (e.key === 'Escape') setTextInput(null) }}
-                    onBlur={confirmText}
-                    placeholder="Digite…"
+              {/* ── Text items overlay ─────────────────────────────────── */}
+              {canAnnotate && textItems.map(item => {
+                const isEditing    = editingId === item.id
+                const isTextActive = tool === 'text'
+                return (
+                  <div
+                    key={item.id}
                     style={{
-                      background: 'rgba(255,255,255,0.92)',
-                      border: `2px solid ${color}`,
-                      borderRadius: 6,
-                      padding: '2px 6px',
-                      color: color,
-                      fontSize: STROKE_WIDTHS[strokeSize] * 5 + 10,
-                      fontWeight: 'bold',
-                      fontFamily: 'sans-serif',
-                      minWidth: 120,
-                      outline: 'none',
+                      position:      'absolute',
+                      left:          `${item.xFrac * 100}%`,
+                      top:           `${item.yFrac * 100}%`,
+                      zIndex:        20,
+                      pointerEvents: isTextActive ? 'auto' : 'none',
+                      cursor:        isEditing ? 'text' : 'move',
+                      userSelect:    'none',
                     }}
-                  />
-                </div>
-              )}
+                    onMouseDown={!isEditing ? (e) => startDragOrEdit(e, item.id) : undefined}
+                  >
+                    {isEditing ? (
+                      /* ── Edit mode ── */
+                      <input
+                        autoFocus
+                        value={item.text}
+                        placeholder="Digite aqui"
+                        onChange={e => updateItemText(item.id, e.target.value)}
+                        onKeyDown={e => {
+                          e.stopPropagation()
+                          if (e.key === 'Enter' || e.key === 'Escape') commitItem(item.id)
+                        }}
+                        onBlur={() => commitItem(item.id)}
+                        style={{
+                          background:   'rgba(255,255,255,0.96)',
+                          border:       `2px solid ${item.color}`,
+                          borderRadius: 5,
+                          padding:      '3px 8px',
+                          color:        item.color,
+                          fontSize:     item.fontSize,
+                          fontWeight:   'bold',
+                          fontFamily:   'sans-serif',
+                          minWidth:     140,
+                          outline:      'none',
+                          boxShadow:    `0 0 0 3px ${item.color}30, 0 2px 12px rgba(0,0,0,0.35)`,
+                          cursor:       'text',
+                        }}
+                      />
+                    ) : (
+                      /* ── Display mode ── */
+                      <div
+                        style={{
+                          display:    'inline-flex',
+                          alignItems: 'flex-start',
+                          gap:        4,
+                          outline:    isTextActive ? `1.5px dashed ${item.color}99` : 'none',
+                          borderRadius: 4,
+                          padding:    isTextActive ? '2px 4px' : '0',
+                        }}
+                      >
+                        <span
+                          style={{
+                            color:      item.color,
+                            fontSize:   item.fontSize,
+                            fontWeight: 'bold',
+                            fontFamily: 'sans-serif',
+                            textShadow: '0 1px 4px rgba(0,0,0,0.55)',
+                            whiteSpace: 'pre',
+                            lineHeight: '1.25',
+                            cursor:     isTextActive ? 'move' : 'default',
+                          }}
+                        >
+                          {item.text}
+                        </span>
+
+                        {/* Delete button — only visible when text tool is active */}
+                        {isTextActive && (
+                          <button
+                            onMouseDown={e => { e.stopPropagation(); deleteItem(item.id) }}
+                            title="Deletar texto"
+                            style={{
+                              flexShrink:     0,
+                              background:     '#ef4444',
+                              color:          '#fff',
+                              border:         'none',
+                              borderRadius:   '50%',
+                              width:          16,
+                              height:         16,
+                              fontSize:       11,
+                              lineHeight:     '16px',
+                              cursor:         'pointer',
+                              display:        'flex',
+                              alignItems:     'center',
+                              justifyContent: 'center',
+                              marginTop:      2,
+                              boxShadow:      '0 1px 3px rgba(0,0,0,0.4)',
+                            }}
+                          >×</button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
 
               {rendering && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/20">
@@ -587,10 +872,12 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
         <div className="flex flex-shrink-0 items-center justify-between border-t border-white/10 bg-[#16213e] px-4 py-1.5 text-[11px] text-gray-500">
           <span>
             {canAnnotate
-              ? `${TOOLS.find(t => t.id === tool)?.label ?? ''} ativo`
+              ? tool === 'text'
+                ? 'Texto — clique para adicionar · arraste para mover · × para deletar'
+                : `${TOOLS.find(t => t.id === tool)?.label ?? ''} ativo`
               : 'Modo visualização'}
           </span>
-          <span>← → navegar · Esc fechar</span>
+          <span>← → navegar · Ctrl+Z desfazer · Esc fechar</span>
         </div>
       )}
     </div>

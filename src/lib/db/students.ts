@@ -13,6 +13,11 @@ function normalize(s: Student): Student {
     color: typeof raw.color === 'string' ? raw.color : '#6366f1',
     needsAttention: typeof raw.needsAttention === 'boolean' ? raw.needsAttention : false,
     meetLink: typeof raw.meetLink === 'string' ? raw.meetLink : '',
+    scheduleDays: Array.isArray(raw.scheduleDays) ? (raw.scheduleDays as number[]) : [],
+    scheduleTime: typeof raw.scheduleTime === 'string' ? raw.scheduleTime : '',
+    scheduleDuration: typeof raw.scheduleDuration === 'number' ? raw.scheduleDuration : 0,
+    contractDuration: (raw.contractDuration as (1 | 3 | 6 | 12) | null) ?? null,
+    contractEndDate: typeof raw.contractEndDate === 'string' ? raw.contractEndDate : '',
   }
 }
 

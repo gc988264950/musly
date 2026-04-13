@@ -4,7 +4,11 @@
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
       "Bash(npx next:*)",
-      "Bash(node -e \"const p = require\\('pdfjs-dist/package.json'\\); console.log\\(p.version\\)\")"
+      "Bash(node -e \"const p = require\\('pdfjs-dist/package.json'\\); console.log\\(p.version\\)\")",
+      "Bash(wc -l /Users/gabrielcruz/harmoniq/src/lib/db/*.ts)",
+      "Bash(ls /Users/gabrielcruz/harmoniq/.env*)",
+      "Bash(cat /Users/gabrielcruz/harmoniq/next.config.*)",
+      "Bash(ls -la /Users/gabrielcruz/harmoniq/.env*)"
     ]
   }
 }

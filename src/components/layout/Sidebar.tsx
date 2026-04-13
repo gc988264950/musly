@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/contexts/AuthContext'
@@ -34,6 +35,7 @@ const navItems = [
   { label: 'Agenda', href: '/agenda', icon: CalendarDays },
   { label: 'Progresso', href: '/progress', icon: BarChart2 },
   { label: 'Financeiro', href: '/billing', icon: CreditCard },
+  { label: 'Assistente IA', href: '/ai-assistant', icon: Sparkles },
 ]
 
 const bottomItems = [

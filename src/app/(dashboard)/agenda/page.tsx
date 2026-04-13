@@ -143,6 +143,21 @@ function validateForm(f: FormState): Record<string, string> {
   return e
 }
 
+/** Returns the conflicting lesson (if any) for a proposed date/time/duration. */
+function findConflict(allLessons: Lesson[], date: string, time: string, duration: number, excludeId?: string): Lesson | null {
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+  const newStart = toMin(time)
+  const newEnd = newStart + duration
+  return allLessons.find((l) => {
+    if (l.id === excludeId) return false
+    if (l.date !== date) return false
+    if (l.status === 'cancelada') return false
+    const lStart = toMin(l.time)
+    const lEnd = lStart + l.duration
+    return newStart < lEnd && newEnd > lStart
+  }) ?? null
+}
+
 // ─── LessonFormFields ─────────────────────────────────────────────────────────
 
 interface LessonFormFieldsProps {
@@ -262,14 +277,28 @@ interface LessonDetailProps {
   onDelete: () => void
   onStatusChange: (s: LessonStatus) => void
   onStartLesson: () => void
+  onReschedule: (date: string, time: string) => void
 }
 
 function LessonDetail({
   lesson, studentName, studentColor, studentMeetLink,
-  onEdit, onDelete, onStatusChange, onStartLesson,
+  onEdit, onDelete, onStatusChange, onStartLesson, onReschedule,
 }: LessonDetailProps) {
   const [statusOpen, setStatusOpen] = useState(false)
   const style = statusStyle[lesson.status]
+  const [rescheduling, setRescheduling] = useState(false)
+  const [newDate, setNewDate] = useState(lesson.date)
+  const [newTime, setNewTime] = useState(lesson.time)
+  const [rescheduleError, setRescheduleError] = useState('')
+
+  function handleRescheduleSave() {
+    if (!newDate) { setRescheduleError('Selecione uma data.'); return }
+    if (!newTime) { setRescheduleError('Selecione um horário.'); return }
+    const today = toISO(new Date())
+    if (newDate < today) { setRescheduleError('A nova data não pode ser no passado.'); return }
+    onReschedule(newDate, newTime)
+    setRescheduling(false)
+  }
 
   return (
     <div className="space-y-4">
@@ -366,6 +395,19 @@ function LessonDetail({
             <Video className="h-3.5 w-3.5" /> Entrar na aula
           </a>
         )}
+        {lesson.status === 'agendada' && (
+          <button
+            onClick={() => { setRescheduling((v) => !v); setRescheduleError('') }}
+            className={cn(
+              'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+              rescheduling
+                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+            )}
+          >
+            <Calendar className="h-3.5 w-3.5" /> Remarcar
+          </button>
+        )}
         <button
           onClick={onEdit}
           className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
@@ -379,6 +421,51 @@ function LessonDetail({
           <Trash2 className="h-3.5 w-3.5" /> Excluir
         </button>
       </div>
+
+      {/* Reschedule panel */}
+      {rescheduling && (
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+          <p className="mb-3 text-xs font-semibold text-blue-800">Remarcar aula</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-blue-700">Nova data</label>
+              <input
+                type="date"
+                value={newDate}
+                onChange={(e) => { setNewDate(e.target.value); setRescheduleError('') }}
+                min={toISO(new Date())}
+                className="block w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-blue-700">Novo horário</label>
+              <input
+                type="time"
+                value={newTime}
+                onChange={(e) => { setNewTime(e.target.value); setRescheduleError('') }}
+                className="block w-full rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+          </div>
+          {rescheduleError && (
+            <p className="mt-2 text-xs text-red-600">{rescheduleError}</p>
+          )}
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={handleRescheduleSave}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Confirmar remarcação
+            </button>
+            <button
+              onClick={() => setRescheduling(false)}
+              className="rounded-lg px-3 py-2 text-xs text-gray-500 transition-colors hover:bg-blue-100"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -763,6 +850,7 @@ export default function AgendaPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [pastSlotWarning, setPastSlotWarning] = useState(false)
+  const [conflictWarning, setConflictWarning] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Lesson | null>(null)
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -900,6 +988,16 @@ export default function AgendaPage() {
       return
     }
 
+    // Conflict check
+    const conflict = findConflict(lessons, form.date, form.time, form.duration, selectedLesson?.id)
+    if (conflict) {
+      const cStudent = students.find((s) => s.id === conflict.studentId)
+      const cName = cStudent?.name ?? 'outro aluno'
+      setConflictWarning(`Já existe uma aula nesse horário: ${cName} às ${formatTime(conflict.time)} (${formatDuration(conflict.duration)}).`)
+      return
+    }
+    setConflictWarning(null)
+
     setSaving(true)
     try {
       if (modalMode === 'create') {
@@ -911,7 +1009,7 @@ export default function AgendaPage() {
     } finally {
       setSaving(false)
     }
-  }, [form, modalMode, selectedLesson, create, update])
+  }, [form, modalMode, selectedLesson, create, update, lessons, students])
 
   // ── Status change ─────────────────────────────────────────────────────────
   const handleStatusChange = useCallback((lesson: Lesson, status: LessonStatus) => {
@@ -920,6 +1018,13 @@ export default function AgendaPage() {
       setSelectedLesson({ ...lesson, status })
     }
   }, [update, selectedLesson])
+
+  // ── Reschedule ────────────────────────────────────────────────────────────
+  const handleReschedule = useCallback((lesson: Lesson, date: string, time: string) => {
+    update(lesson.id, { date, time })
+    setSelectedLesson({ ...lesson, date, time })
+    setModalMode(null)
+  }, [update])
 
   // ── Delete ────────────────────────────────────────────────────────────────
   const handleDeleteConfirm = useCallback(() => {
@@ -1089,9 +1194,15 @@ export default function AgendaPage() {
         <LessonFormFields
           form={form}
           errors={formErrors}
-          onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
+          onChange={(patch) => { setForm((prev) => ({ ...prev, ...patch })); setConflictWarning(null) }}
           students={students.map((s) => ({ id: s.id, name: s.name, instrument: s.instrument }))}
         />
+        {conflictWarning && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-yellow-200 bg-yellow-50 px-4 py-3">
+            <span className="mt-0.5 text-yellow-600">⚠️</span>
+            <p className="text-sm text-yellow-800">{conflictWarning}</p>
+          </div>
+        )}
         <div className="mt-5 flex justify-end gap-3 border-t border-gray-100 pt-4">
           <Button variant="outline" onClick={() => setModalMode(null)}>Cancelar</Button>
           <Button variant="primary" onClick={handleSave} disabled={saving}>
@@ -1120,6 +1231,7 @@ export default function AgendaPage() {
                 onDelete={() => { setDeleteTarget(selectedLesson); setModalMode(null) }}
                 onStatusChange={(s) => handleStatusChange(selectedLesson, s)}
                 onStartLesson={() => router.push(`/lesson-mode/${selectedLesson.id}`)}
+                onReschedule={(date, time) => handleReschedule(selectedLesson, date, time)}
               />
             )
           })()}

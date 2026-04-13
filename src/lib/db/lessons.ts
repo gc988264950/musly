@@ -9,6 +9,9 @@ function normalize(l: Lesson): Lesson {
   return {
     ...l,
     performanceTags: Array.isArray(raw.performanceTags) ? (raw.performanceTags as string[]) : [],
+    homework: typeof raw.homework === 'string' ? raw.homework : '',
+    homeworkSentAt: (raw.homeworkSentAt as string | null) ?? null,
+    scheduleGroupId: typeof raw.scheduleGroupId === 'string' ? raw.scheduleGroupId : '',
   }
 }
 
@@ -84,6 +87,9 @@ export function createLesson(data: CreateLessonInput): Lesson {
   const now = new Date().toISOString()
   const lesson: Lesson = {
     performanceTags: [],
+    homework: '',
+    homeworkSentAt: null,
+    scheduleGroupId: '',
     ...data,
     id: crypto.randomUUID(),
     createdAt: now,
@@ -106,4 +112,49 @@ export function deleteLesson(id: string): void {
 /** Cascade-delete all lessons for a student (called when deleting a student). */
 export function deleteLessonsByStudent(studentId: string): void {
   removeManyWhere<Lesson>(KEY, (l) => l.studentId === studentId)
+}
+
+/**
+ * Generate recurring lessons for a new student with a schedule.
+ * @param days  Array of weekday numbers (0=Sun, 1=Mon … 6=Sat)
+ * @param startDate  "YYYY-MM-DD" — first possible lesson date (usually today)
+ * @param endDate    "YYYY-MM-DD" — last possible lesson date (contract end)
+ * @returns number of lessons created
+ */
+export function generateRecurringLessons(data: {
+  teacherId: string
+  studentId: string
+  instrument: string
+  days: number[]
+  time: string
+  duration: number
+  startDate: string
+  endDate: string
+  scheduleGroupId: string
+}): number {
+  if (data.days.length === 0 || !data.time || data.duration === 0) return 0
+
+  const end = new Date(data.endDate + 'T00:00:00')
+  let count = 0
+  const cursor = new Date(data.startDate + 'T00:00:00')
+
+  while (cursor <= end) {
+    if (data.days.includes(cursor.getDay())) {
+      createLesson({
+        teacherId: data.teacherId,
+        studentId: data.studentId,
+        date: cursor.toISOString().split('T')[0],
+        time: data.time,
+        duration: data.duration,
+        instrument: data.instrument,
+        topic: '',
+        notes: '',
+        status: 'agendada',
+        scheduleGroupId: data.scheduleGroupId,
+      })
+      count++
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return count
 }
