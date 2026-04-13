@@ -2273,6 +2273,9 @@ function TabPlanejamento({ profile }: { profile: ReturnType<typeof useStudentPro
 
   async function handleSavePlan() {
     if (!selectedLessonId) return
+    // Require at least one field before persisting — prevents empty ghost plans
+    const hasContent = planObjective.trim() || planContent.trim() || planExercises.trim() || planObservations.trim()
+    if (!hasContent) return
     const existingInHook = lessonPlans.find((p) => p.lessonId === selectedLessonId)
     const existingInDb = await getLessonPlanByLessonId(selectedLessonId)
     const existing = existingInHook ?? existingInDb
@@ -2384,9 +2387,13 @@ function TabPlanejamento({ profile }: { profile: ReturnType<typeof useStudentPro
           ) : (
             <div className="divide-y divide-gray-50">
               {filteredLessons.map((lesson) => {
-                const hasPlan =
-                  lessonPlans.some((p) => p.lessonId === lesson.id) ||
-                  !!getLessonPlanByLessonId(lesson.id)
+                // A plan is real only when it has actual content saved by the teacher.
+                // NEVER call getLessonPlanByLessonId here (it's async — would return a
+                // truthy Promise object and make every lesson appear as planned).
+                const hasPlan = lessonPlans.some(
+                  (p) => p.lessonId === lesson.id &&
+                    !!(p.planObjective.trim() || p.planContent.trim() || p.planExercises.trim() || p.planObservations.trim())
+                )
                 const style    = lessonStatusStyle[lesson.status]
                 const isUpcoming = lesson.date >= todayStr
 
@@ -2737,7 +2744,10 @@ export default function StudentProfilePage() {
     )
     if (nextWeekLessons.length === 0) return null
     const unplanned = nextWeekLessons.filter(
-      (l) => !lessonPlans.some((p) => p.lessonId === l.id) && !getLessonPlanByLessonId(l.id)
+      (l) => !lessonPlans.some(
+        (p) => p.lessonId === l.id &&
+          !!(p.planObjective.trim() || p.planContent.trim() || p.planExercises.trim() || p.planObservations.trim())
+      )
     )
     if (unplanned.length === 0) return null
     return {
@@ -2846,7 +2856,13 @@ export default function StudentProfilePage() {
 
       {/* Tabs */}
       <div className="mb-6 flex gap-1 overflow-x-auto border-b border-gray-100 pb-px">
-        {TABS.map((tab) => {
+        {TABS.filter((tab) => {
+          if (tab.id !== 'planejamento') return true
+          // Only show planning tab if student has scheduled lessons or an active contract
+          const hasScheduledLessons = lessons.some((l) => l.status === 'agendada')
+          const hasActiveContract   = !!(student.contractEndDate && student.contractEndDate >= todayStr)
+          return hasScheduledLessons || hasActiveContract
+        }).map((tab) => {
           const Icon = tab.icon
           const isActive = activeTab === tab.id
           return (
@@ -2873,7 +2889,11 @@ export default function StudentProfilePage() {
       {activeTab === 'progress' && <TabProgress profile={profile} />}
       {activeTab === 'repertoire' && <TabRepertoire profile={profile} />}
       {activeTab === 'notes' && <TabNotes profile={profile} />}
-      {activeTab === 'planejamento' && <TabPlanejamento profile={profile} />}
+      {activeTab === 'planejamento' &&
+        (lessons.some((l) => l.status === 'agendada') ||
+         !!(student.contractEndDate && student.contractEndDate >= todayStr)) &&
+        <TabPlanejamento profile={profile} />
+      }
       {activeTab === 'financeiro' && <TabFinanceiro profile={profile} />}
       {activeTab === 'materiais' && (
         <FilesTab studentId={student.id} teacherId={user?.id ?? ''} />

@@ -302,16 +302,16 @@ export interface Notification {
 }
 
 // ─── Student Files ────────────────────────────────────────────────────────────
-// TODO (Supabase): Mirror this schema with a student_files table + Storage bucket
-
 export interface StudentFile {
-  id: string
-  studentId: string
-  teacherId: string
-  name: string       // original filename
-  mimeType: string   // e.g. 'application/pdf', 'image/png'
-  size: number       // bytes
-  createdAt: string  // ISO
+  id:               string
+  studentId:        string
+  teacherId:        string
+  name:             string    // original filename
+  mimeType:         string    // e.g. 'application/pdf', 'image/png'
+  size:             number    // bytes
+  storagePath:      string    // Supabase Storage path: '{teacherId}/{fileId}'
+  visibleToStudent: boolean   // true = student can see and download this file
+  createdAt:        string    // ISO
 }
 
 // ─── Subscription ─────────────────────────────────────────────────────────────

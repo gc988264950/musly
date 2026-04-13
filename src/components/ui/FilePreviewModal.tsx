@@ -45,9 +45,9 @@ export function FilePreviewModal({ file, onClose }: FilePreviewModalProps) {
 
     async function load() {
       try {
-        const blob = await getFileBlob(file.id)
+        const blob = await getFileBlob(file.storagePath)
         if (!blob) {
-          setError('Arquivo não encontrado no armazenamento local.')
+          setError('Arquivo não encontrado.')
           return
         }
         // Re-type the blob with the correct MIME type for proper browser handling

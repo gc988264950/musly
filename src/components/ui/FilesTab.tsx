@@ -3,9 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Upload, FileText, Image as ImageIcon, Music, Video, File,
-  Trash2, Eye, Download, FolderOpen, AlertCircle, X, BookOpen,
+  Trash2, Eye, Download, FolderOpen, AlertCircle, X, BookOpen, EyeOff,
 } from 'lucide-react'
-import { getStudentFiles, saveStudentFile, deleteStudentFile } from '@/lib/db/studentFiles'
+import { getStudentFiles, createStudentFile, deleteStudentFile, updateStudentFileVisibility } from '@/lib/db/studentFiles'
 import { saveFileBlob, getFileBlob, deleteFileBlob } from '@/lib/db/fileStorage'
 import { FilePreviewModal } from '@/components/ui/FilePreviewModal'
 import { MaterialViewerModal } from '@/components/ui/MaterialViewerModal'
@@ -74,18 +74,23 @@ interface FilesTabProps {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function FilesTab({ studentId, teacherId }: FilesTabProps) {
-  const [files, setFiles] = useState<StudentFile[]>([])
-  const [uploading, setUploading] = useState(false)
-  const [uploadErrors, setUploadErrors] = useState<string[]>([])
-  const [dragging, setDragging] = useState(false)
-  const [previewFile, setPreviewFile] = useState<StudentFile | null>(null)
-  const [viewerFile, setViewerFile] = useState<StudentFile | null>(null)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [files,         setFiles]         = useState<StudentFile[]>([])
+  const [uploading,     setUploading]     = useState(false)
+  const [uploadErrors,  setUploadErrors]  = useState<string[]>([])
+  const [dragging,      setDragging]      = useState(false)
+  const [previewFile,   setPreviewFile]   = useState<StudentFile | null>(null)
+  const [viewerFile,    setViewerFile]    = useState<StudentFile | null>(null)
+  const [deletingId,    setDeletingId]    = useState<string | null>(null)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [togglingId,    setTogglingId]    = useState<string | null>(null)
 
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const reload = useCallback(() => setFiles(getStudentFiles(studentId)), [studentId])
+  const reload = useCallback(async () => {
+    const data = await getStudentFiles(studentId).catch(() => [] as StudentFile[])
+    setFiles(data)
+  }, [studentId])
+
   useEffect(() => { reload() }, [reload])
 
   // ── Validation ──────────────────────────────────────────────────────────
@@ -98,12 +103,6 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
   }
 
   // ── Upload ──────────────────────────────────────────────────────────────
-  /**
-   * Two-step upload:
-   * 1. Blob → IndexedDB with a pre-generated UUID
-   * 2. Metadata → localStorage with the same UUID
-   * This keeps blob and metadata in sync without a separate lookup.
-   */
   const processFiles = useCallback(
     async (raw: FileList | File[]) => {
       const list = Array.from(raw)
@@ -118,16 +117,19 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
         if (err) { errors.push(err); continue }
 
         try {
-          const id = crypto.randomUUID()
-          await saveFileBlob(id, f)
-          saveStudentFile({
+          const id          = crypto.randomUUID()
+          const storagePath = `${teacherId}/${id}`
+          await saveFileBlob(storagePath, f)
+          await createStudentFile({
             id,
             studentId,
             teacherId,
-            name: f.name,
-            mimeType: f.type,
-            size: f.size,
-            createdAt: new Date().toISOString(),
+            name:             f.name,
+            mimeType:         f.type,
+            size:             f.size,
+            storagePath,
+            visibleToStudent: false,
+            createdAt:        new Date().toISOString(),
           })
         } catch {
           errors.push(`"${f.name}": erro ao salvar arquivo. Tente novamente.`)
@@ -135,7 +137,7 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
       }
 
       if (errors.length) setUploadErrors(errors)
-      reload()
+      await reload()
       setUploading(false)
     },
     [studentId, teacherId, reload]
@@ -149,14 +151,28 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
     processFiles(e.dataTransfer.files)
   }
 
+  // ── Visibility toggle ────────────────────────────────────────────────────
+  async function handleToggleVisibility(file: StudentFile) {
+    setTogglingId(file.id)
+    try {
+      const next = !file.visibleToStudent
+      await updateStudentFileVisibility(file.id, next)
+      setFiles((prev) => prev.map((f) => f.id === file.id ? { ...f, visibleToStudent: next } : f))
+    } catch {
+      alert('Erro ao atualizar visibilidade.')
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
   // ── Delete ──────────────────────────────────────────────────────────────
   async function handleDelete(file: StudentFile) {
     if (!confirm(`Excluir "${file.name}"? Esta ação não pode ser desfeita.`)) return
     setDeletingId(file.id)
     try {
-      await deleteFileBlob(file.id)
-      deleteStudentFile(file.id)
-      reload()
+      await deleteFileBlob(file.storagePath)
+      await deleteStudentFile(file.id)
+      await reload()
     } catch {
       alert('Erro ao excluir o arquivo. Tente novamente.')
     } finally {
@@ -168,8 +184,8 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
   async function handleDownload(file: StudentFile) {
     setDownloadingId(file.id)
     try {
-      const blob = await getFileBlob(file.id)
-      if (!blob) { alert('Arquivo não encontrado no armazenamento local.'); return }
+      const blob = await getFileBlob(file.storagePath)
+      if (!blob) { alert('Arquivo não encontrado no armazenamento.'); return }
       const url = URL.createObjectURL(new Blob([blob], { type: file.mimeType }))
       const a = document.createElement('a')
       a.href = url; a.download = file.name
@@ -241,6 +257,13 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
         </div>
       )}
 
+      {/* Visibility legend */}
+      {files.length > 0 && (
+        <p className="text-xs text-gray-400">
+          Use o ícone <Eye size={11} className="inline" /> para tornar um arquivo visível para o aluno.
+        </p>
+      )}
+
       {/* File list */}
       {files.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -257,15 +280,19 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
           </p>
           <div className="space-y-2">
             {files.map((file) => {
-              const style = getFileStyle(file.mimeType)
-              const Icon = style.icon
-              const isDeleting = deletingId === file.id
+              const style       = getFileStyle(file.mimeType)
+              const Icon        = style.icon
+              const isDeleting  = deletingId    === file.id
               const isDownloading = downloadingId === file.id
+              const isToggling  = togglingId    === file.id
 
               return (
                 <div
                   key={file.id}
-                  className="flex items-center gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-card transition-shadow hover:shadow-card-hover"
+                  className={cn(
+                    'flex items-center gap-3 rounded-xl border bg-white px-4 py-3 shadow-card transition-shadow hover:shadow-card-hover',
+                    file.visibleToStudent ? 'border-green-100' : 'border-gray-100'
+                  )}
                 >
                   {/* Icon */}
                   <div className={cn('flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl', style.iconBg)}>
@@ -284,12 +311,35 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
                       <span className="text-[11px] text-gray-400">{formatSize(file.size)}</span>
                       <span className="text-gray-200">·</span>
                       <span className="text-[11px] text-gray-400">{formatDate(file.createdAt)}</span>
+                      {file.visibleToStudent && (
+                        <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700">
+                          Visível para aluno
+                        </span>
+                      )}
                     </div>
                   </div>
 
                   {/* Actions */}
                   <div className="flex flex-shrink-0 items-center gap-1">
-                    {/* "Abrir material" — full viewer with annotation (PDF + images only) */}
+                    {/* Visibility toggle */}
+                    <button
+                      onClick={() => handleToggleVisibility(file)}
+                      disabled={isToggling}
+                      className={cn(
+                        'rounded-lg p-1.5 transition-colors disabled:opacity-50',
+                        file.visibleToStudent
+                          ? 'text-green-600 hover:bg-green-50'
+                          : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600'
+                      )}
+                      title={file.visibleToStudent ? 'Ocultar do aluno' : 'Tornar visível para o aluno'}
+                    >
+                      {isToggling
+                        ? <div className="h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                        : file.visibleToStudent ? <Eye size={15} /> : <EyeOff size={15} />
+                      }
+                    </button>
+
+                    {/* Open material viewer (PDF + images) */}
                     {(file.mimeType === 'application/pdf' || file.mimeType.startsWith('image/')) && (
                       <button
                         onClick={() => setViewerFile(file)}
@@ -337,12 +387,12 @@ export function FilesTab({ studentId, teacherId }: FilesTabProps) {
         </>
       )}
 
-      {/* Quick preview modal (existing) */}
+      {/* Quick preview modal */}
       {previewFile && (
         <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
       )}
 
-      {/* Interactive material viewer (annotation layer — teacher only) */}
+      {/* Interactive material viewer (teacher only — annotation layer) */}
       {viewerFile && (
         <MaterialViewerModal
           file={viewerFile}

@@ -161,7 +161,8 @@ export default function LessonModePage() {
         setStudentColor(student.color)
         setStudentMeetLink(student.meetLink ?? '')
         setStudentId(student.id)
-        setMaterials(getStudentFiles(student.id).filter(
+        const allFiles = await getStudentFiles(student.id)
+        setMaterials(allFiles.filter(
           (f) => f.mimeType === 'application/pdf' || f.mimeType.startsWith('image/')
         ))
       }
@@ -233,6 +234,11 @@ export default function LessonModePage() {
   // ── Save lesson planning blocks ───────────────────────────────────────────
   async function savePlanBlocks() {
     if (!lesson || !studentId) return
+    // Don't create a plan record unless at least one field has content.
+    // This prevents lessons from appearing as "Planejado" when the teacher
+    // opens lesson mode without filling in any planning.
+    const hasContent = planObjective.trim() || planContent.trim() || planExercises.trim() || planObservations.trim()
+    if (!hasContent && !planPlanId) return
     try {
       const plan = await getOrCreateLessonPlan({
         lessonId: lesson.id,

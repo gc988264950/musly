@@ -64,13 +64,15 @@ export default function StudentMaterialsPage() {
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
 
   useEffect(() => {
-    if (linkedStudentId) setFiles(getStudentFiles(linkedStudentId))
+    if (linkedStudentId) {
+      getStudentFiles(linkedStudentId).then(setFiles).catch(() => {})
+    }
   }, [linkedStudentId])
 
   async function handleDownload(file: StudentFile) {
     setDownloadingId(file.id)
     try {
-      const blob = await getFileBlob(file.id)
+      const blob = await getFileBlob(file.storagePath)
       if (!blob) { alert('Arquivo não encontrado.'); return }
       const url = URL.createObjectURL(new Blob([blob], { type: file.mimeType }))
       const a = document.createElement('a')

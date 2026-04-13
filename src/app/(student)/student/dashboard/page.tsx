@@ -89,10 +89,7 @@ export default function StudentDashboardPage() {
       setRecentHomework(homework)
     }).catch(() => {})
 
-    try {
-      const files = getStudentFiles(linkedStudentId)
-      setFilesCount(files.length)
-    } catch { /* ignore */ }
+    getStudentFiles(linkedStudentId).then((files) => setFilesCount(files.length)).catch(() => {})
 
     const thisMonth = currentYearMonth()
     Promise.all([

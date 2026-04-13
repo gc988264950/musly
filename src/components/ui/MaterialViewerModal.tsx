@@ -189,14 +189,14 @@ export function MaterialViewerModal({ file, isTeacher, onClose }: MaterialViewer
     setTextItems(loadTextItems(file.id, currentPage))
   }, [file.id, currentPage])
 
-  // ── Load blob from IndexedDB ─────────────────────────────────────────
+  // ── Load blob from Supabase Storage ─────────────────────────────────
   useEffect(() => {
     let url: string | null = null
     async function load() {
       try {
         setLoading(true)
-        const blob = await getFileBlob(file.id)
-        if (!blob) { setError('Arquivo não encontrado no armazenamento local.'); return }
+        const blob = await getFileBlob(file.storagePath)
+        if (!blob) { setError('Arquivo não encontrado.'); return }
         url = URL.createObjectURL(new Blob([blob], { type: file.mimeType }))
         setObjectUrl(url)
         if (isPDF) {
