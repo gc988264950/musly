@@ -21,7 +21,7 @@ const TEACHER_PATHS = [
 /** Student portal paths */
 const STUDENT_PATHS = ['/student']
 
-const AUTH_PATHS = ['/login', '/signup', '/student-login']
+const AUTH_PATHS = ['/login', '/signup', '/student-login', '/forgot-password']
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl

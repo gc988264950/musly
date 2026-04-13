@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useStudents } from '@/hooks/useStudents'
 import { getProgressByStudent } from '@/lib/db/progress'
@@ -7,8 +8,9 @@ import { getRepertoireByStudent } from '@/lib/db/repertoire'
 import { getLessonsByStudent } from '@/lib/db/lessons'
 import { Card } from '@/components/ui/Card'
 import { EmptyState } from '@/components/ui/EmptyState'
-import { TrendingUp, ChevronRight, Music, AlertTriangle, BookOpen, List } from 'lucide-react'
+import { TrendingUp, ChevronRight, AlertTriangle } from 'lucide-react'
 import { cn, getInitials } from '@/lib/utils'
+import type { Student, StudentProgress } from '@/lib/db/types'
 import type { StudentLevel } from '@/lib/db/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -33,10 +35,42 @@ const avatarGradients = [
   'from-[#1057b0] to-[#0d2d5e]',
 ]
 
+interface StudentRow {
+  student: Student
+  progress: StudentProgress | null
+  completedLessons: number
+  activeRepertoire: number
+  completedRepertoire: number
+  gradient: string
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProgressPage() {
   const { students, loading } = useStudents()
+  const [rows, setRows] = useState<StudentRow[]>([])
+
+  useEffect(() => {
+    if (students.length === 0) { setRows([]); return }
+
+    Promise.all(
+      students.map(async (student, i) => {
+        const [progress, repertoire, lessons] = await Promise.all([
+          getProgressByStudent(student.id).catch(() => null),
+          getRepertoireByStudent(student.id).catch(() => []),
+          getLessonsByStudent(student.id).catch(() => []),
+        ])
+        return {
+          student,
+          progress,
+          completedLessons: lessons.filter((l) => l.status === 'concluída').length,
+          activeRepertoire: repertoire.filter((r) => r.status === 'em andamento').length,
+          completedRepertoire: repertoire.filter((r) => r.status === 'concluído').length,
+          gradient: avatarGradients[i % avatarGradients.length],
+        }
+      })
+    ).then(setRows)
+  }, [students])
 
   if (loading) {
     return (
@@ -62,26 +96,6 @@ export default function ProgressPage() {
     )
   }
 
-  // Build rows with enriched data per student
-  const rows = students.map((student, i) => {
-    const progress = getProgressByStudent(student.id)
-    const repertoire = getRepertoireByStudent(student.id)
-    const lessons = getLessonsByStudent(student.id)
-    const completedLessons = lessons.filter((l) => l.status === 'concluída').length
-    const activeRepertoire = repertoire.filter((r) => r.status === 'em andamento').length
-    const completedRepertoire = repertoire.filter((r) => r.status === 'concluído').length
-
-    return {
-      student,
-      progress,
-      completedLessons,
-      activeRepertoire,
-      completedRepertoire,
-      gradient: avatarGradients[i % avatarGradients.length],
-    }
-  })
-
-  // Summary counts
   const withAttention = rows.filter((r) => r.student.needsAttention)
   const withProgress = rows.filter((r) => r.progress !== null)
 

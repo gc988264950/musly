@@ -1,33 +1,53 @@
-// TODO (Supabase): replace localStorage helpers with async Supabase client calls
-
-import { readCollection, upsertItem } from './storage'
+import { createClient } from '@/lib/supabase/client'
 import type { UserSettings } from './types'
 
-const KEY = 'harmoniq_user_settings'
-
-function now() {
-  return new Date().toISOString()
-}
-
-export function getUserSettings(userId: string): UserSettings | null {
-  // TODO (Supabase): SELECT * FROM user_settings WHERE user_id = $1 LIMIT 1
-  return readCollection<UserSettings>(KEY).find((s) => s.userId === userId) ?? null
-}
-
-export function saveUserSettings(
-  userId: string,
-  data: Partial<Omit<UserSettings, 'id' | 'userId' | 'updatedAt'>>
-): UserSettings {
-  // TODO (Supabase): INSERT INTO user_settings (...) ... ON CONFLICT (user_id) DO UPDATE SET ...
-  const existing = getUserSettings(userId)
-  const record: UserSettings = {
-    id: existing?.id ?? userId,  // use userId as id for single-record-per-user pattern
-    userId,
-    firstName: data.firstName ?? existing?.firstName ?? '',
-    lastName: data.lastName ?? existing?.lastName ?? '',
-    email: data.email ?? existing?.email ?? '',
-    teachingMethod: data.teachingMethod ?? existing?.teachingMethod ?? '',
-    updatedAt: now(),
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(r: any): UserSettings {
+  return {
+    id:             r.id,
+    userId:         r.user_id,
+    firstName:      r.first_name      ?? '',
+    lastName:       r.last_name       ?? '',
+    email:          r.email           ?? '',
+    teachingMethod: r.teaching_method ?? '',
+    updatedAt:      r.updated_at,
   }
-  return upsertItem<UserSettings>(KEY, record)
+}
+
+export async function getUserSettings(userId: string): Promise<UserSettings | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('user_settings')
+    .select()
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return data ? fromRow(data) : null
+}
+
+export async function saveUserSettings(
+  userId: string,
+  data: Partial<Omit<UserSettings, 'id' | 'userId' | 'updatedAt'>>,
+  existing?: UserSettings | null,
+): Promise<UserSettings> {
+  const supabase = createClient()
+  const now = new Date().toISOString()
+
+  const record = {
+    user_id:         userId,
+    first_name:      data.firstName      ?? existing?.firstName      ?? '',
+    last_name:       data.lastName       ?? existing?.lastName       ?? '',
+    email:           data.email          ?? existing?.email          ?? '',
+    teaching_method: data.teachingMethod ?? existing?.teachingMethod ?? '',
+    updated_at:      now,
+  }
+
+  const { data: row, error } = await supabase
+    .from('user_settings')
+    .upsert(record, { onConflict: 'user_id' })
+    .select()
+    .single()
+
+  if (error) throw error
+  return fromRow(row)
 }

@@ -1,44 +1,69 @@
-// TODO (Supabase): replace localStorage helpers with async Supabase client calls
-
-import { readCollection, upsertItem, removeManyWhere } from './storage'
+import { createClient } from '@/lib/supabase/client'
 import type { StudentFinancial, CreateFinancialInput, UpdateFinancialInput } from './types'
 
-const KEY = 'harmoniq_financial'
-
-function now() {
-  return new Date().toISOString()
-}
-
-export function getFinancialByStudent(studentId: string): StudentFinancial | null {
-  // TODO (Supabase): SELECT * FROM student_financial WHERE student_id = $1 LIMIT 1
-  return readCollection<StudentFinancial>(KEY).find((f) => f.studentId === studentId) ?? null
-}
-
-export function getAllFinancial(teacherId: string): StudentFinancial[] {
-  // TODO (Supabase): SELECT * FROM student_financial WHERE teacher_id = $1
-  return readCollection<StudentFinancial>(KEY).filter((f) => f.teacherId === teacherId)
-}
-
-export function upsertFinancial(data: CreateFinancialInput): StudentFinancial {
-  // TODO (Supabase): INSERT INTO student_financial (...) ON CONFLICT (student_id) DO UPDATE SET ... RETURNING *
-  const existing = getFinancialByStudent(data.studentId)
-  const record: StudentFinancial = {
-    id: existing?.id ?? crypto.randomUUID(),
-    ...data,
-    updatedAt: now(),
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(r: any): StudentFinancial {
+  return {
+    id:             r.id,
+    studentId:      r.student_id,
+    teacherId:      r.teacher_id,
+    monthlyFee:     Number(r.monthly_fee)     ?? 0,
+    dueDayOfMonth:  r.due_day_of_month        ?? 10,
+    paymentLink:    r.payment_link            ?? undefined,
+    contactLink:    r.contact_link            ?? undefined,
+    updatedAt:      r.updated_at,
   }
-  return upsertItem<StudentFinancial>(KEY, record)
 }
 
-export function updateFinancial(studentId: string, data: UpdateFinancialInput): StudentFinancial | null {
-  // TODO (Supabase): UPDATE student_financial SET ... WHERE student_id = $1 RETURNING *
-  const existing = getFinancialByStudent(studentId)
-  if (!existing) return null
-  const updated: StudentFinancial = { ...existing, ...data, updatedAt: now() }
-  return upsertItem<StudentFinancial>(KEY, updated)
+export async function getFinancialByStudent(studentId: string): Promise<StudentFinancial | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('student_financial')
+    .select()
+    .eq('student_id', studentId)
+    .maybeSingle()
+  if (error) throw error
+  return data ? fromRow(data) : null
 }
 
-export function deleteFinancialByStudent(studentId: string): void {
-  // TODO (Supabase): DELETE FROM student_financial WHERE student_id = $1
-  removeManyWhere<StudentFinancial>(KEY, (f) => f.studentId === studentId)
+export async function getAllFinancial(teacherId: string): Promise<StudentFinancial[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('student_financial')
+    .select()
+    .eq('teacher_id', teacherId)
+  if (error) throw error
+  return (data ?? []).map(fromRow)
+}
+
+export async function upsertFinancial(financial: StudentFinancial): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('student_financial').upsert({
+    id:               financial.id,
+    teacher_id:       financial.teacherId,
+    student_id:       financial.studentId,
+    monthly_fee:      financial.monthlyFee,
+    due_day_of_month: financial.dueDayOfMonth,
+    payment_link:     financial.paymentLink ?? null,
+    contact_link:     financial.contactLink ?? null,
+    updated_at:       new Date().toISOString(),
+  }, { onConflict: 'student_id' })
+  if (error) throw error
+}
+
+// ─── Builders ─────────────────────────────────────────────────────────────────
+
+export function buildFinancial(
+  data: CreateFinancialInput,
+  existingId?: string,
+): StudentFinancial {
+  return {
+    id:        existingId ?? crypto.randomUUID(),
+    ...data,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+export function applyUpdate(existing: StudentFinancial, data: UpdateFinancialInput): StudentFinancial {
+  return { ...existing, ...data, updatedAt: new Date().toISOString() }
 }

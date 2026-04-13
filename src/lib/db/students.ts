@@ -1,57 +1,131 @@
-import { readCollection, upsertItem, removeItem } from './storage'
-import type { Student, CreateStudentInput, UpdateStudentInput } from './types'
+import { createClient } from '@/lib/supabase/client'
+import type { Student, CreateStudentInput, UpdateStudentInput, StudentLevel } from './types'
 
-const KEY = 'harmoniq_students'
+// ─── Row mappers ──────────────────────────────────────────────────────────────
 
-// Normalize records that predate newer fields (backwards compatibility)
-function normalize(s: Student): Student {
-  const raw = s as unknown as Record<string, unknown>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(r: any): Student {
   return {
-    ...s,
-    objectives: typeof raw.objectives === 'string' ? raw.objectives : '',
-    nextSteps: typeof raw.nextSteps === 'string' ? raw.nextSteps : '',
-    color: typeof raw.color === 'string' ? raw.color : '#6366f1',
-    needsAttention: typeof raw.needsAttention === 'boolean' ? raw.needsAttention : false,
-    meetLink: typeof raw.meetLink === 'string' ? raw.meetLink : '',
-    scheduleDays: Array.isArray(raw.scheduleDays) ? (raw.scheduleDays as number[]) : [],
-    scheduleTime: typeof raw.scheduleTime === 'string' ? raw.scheduleTime : '',
-    scheduleDuration: typeof raw.scheduleDuration === 'number' ? raw.scheduleDuration : 0,
-    contractDuration: (raw.contractDuration as (1 | 3 | 6 | 12) | null) ?? null,
-    contractEndDate: typeof raw.contractEndDate === 'string' ? raw.contractEndDate : '',
+    id:               r.id,
+    teacherId:        r.teacher_id,
+    name:             r.name,
+    instrument:       r.instrument       ?? '',
+    level:            r.level            ?? 'Iniciante' as StudentLevel,
+    email:            r.email            ?? '',
+    phone:            r.phone            ?? '',
+    notes:            r.notes            ?? '',
+    objectives:       r.objectives       ?? '',
+    nextSteps:        r.next_steps       ?? '',
+    color:            r.color            ?? '#6366f1',
+    needsAttention:   r.needs_attention  ?? false,
+    meetLink:         r.meet_link        ?? '',
+    scheduleDays:     r.schedule_days    ?? [],
+    scheduleTime:     r.schedule_time    ?? '',
+    scheduleDuration: r.schedule_duration ?? 0,
+    contractDuration: r.contract_duration ?? null,
+    contractEndDate:  r.contract_end_date ?? '',
+    createdAt:        r.created_at,
+    updatedAt:        r.updated_at,
   }
 }
 
-// ─── Queries ─────────────────────────────────────────────────────────────────
-// TODO (Supabase): Replace body with: supabase.from('students').select().eq('teacher_id', teacherId)
-
-export function getStudents(teacherId: string): Student[] {
-  return readCollection<Student>(KEY)
-    .filter((s) => s.teacherId === teacherId)
-    .map(normalize)
-    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+function toRow(s: Student) {
+  return {
+    id:                s.id,
+    teacher_id:        s.teacherId,
+    name:              s.name,
+    instrument:        s.instrument,
+    level:             s.level,
+    email:             s.email,
+    phone:             s.phone,
+    notes:             s.notes,
+    objectives:        s.objectives,
+    next_steps:        s.nextSteps,
+    color:             s.color,
+    needs_attention:   s.needsAttention,
+    meet_link:         s.meetLink,
+    schedule_days:     s.scheduleDays,
+    schedule_time:     s.scheduleTime,
+    schedule_duration: s.scheduleDuration,
+    contract_duration: s.contractDuration,
+    contract_end_date: s.contractEndDate,
+    created_at:        s.createdAt,
+    updated_at:        s.updatedAt,
+  }
 }
 
-export function getStudentById(id: string): Student | null {
-  const s = readCollection<Student>(KEY).find((s) => s.id === id)
-  return s ? normalize(s) : null
+// ─── Queries ──────────────────────────────────────────────────────────────────
+
+export async function getStudents(teacherId: string): Promise<Student[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('students')
+    .select()
+    .eq('teacher_id', teacherId)
+    .order('name')
+  if (error) throw error
+  return (data ?? []).map(fromRow)
 }
 
-// ─── Mutations ───────────────────────────────────────────────────────────────
-// TODO (Supabase): Replace bodies with supabase.from('students').insert / .update / .delete
+export async function getStudentById(id: string): Promise<Student | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('students')
+    .select()
+    .eq('id', id)
+    .single()
+  if (error) return null
+  return fromRow(data)
+}
 
-export function createStudent(data: CreateStudentInput): Student {
+// ─── Mutations ────────────────────────────────────────────────────────────────
+
+export async function createStudent(student: Student): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('students').insert(toRow(student))
+  if (error) throw error
+}
+
+export async function updateStudent(student: Student): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('students')
+    .update({ ...toRow(student), updated_at: new Date().toISOString() })
+    .eq('id', student.id)
+  if (error) throw error
+}
+
+export async function deleteStudent(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('students').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ─── Legacy helpers (kept for compatibility) ──────────────────────────────────
+
+export function buildStudent(
+  data: CreateStudentInput,
+  id = crypto.randomUUID(),
+): Student {
   const now = new Date().toISOString()
-  const student: Student = { id: crypto.randomUUID(), ...data, createdAt: now, updatedAt: now }
-  return upsertItem(KEY, student)
+  return {
+    id,
+    ...data,
+    objectives:       data.objectives       ?? '',
+    nextSteps:        data.nextSteps        ?? '',
+    color:            data.color            ?? '#6366f1',
+    needsAttention:   data.needsAttention   ?? false,
+    meetLink:         data.meetLink         ?? '',
+    scheduleDays:     data.scheduleDays     ?? [],
+    scheduleTime:     data.scheduleTime     ?? '',
+    scheduleDuration: data.scheduleDuration ?? 0,
+    contractDuration: data.contractDuration ?? null,
+    contractEndDate:  data.contractEndDate  ?? '',
+    createdAt: now,
+    updatedAt: now,
+  }
 }
 
-export function updateStudent(id: string, data: UpdateStudentInput): Student {
-  const existing = readCollection<Student>(KEY).find((s) => s.id === id)
-  if (!existing) throw new Error('Aluno não encontrado.')
-  const updated: Student = { ...existing, ...data, updatedAt: new Date().toISOString() }
-  return upsertItem(KEY, updated)
-}
-
-export function deleteStudent(id: string): void {
-  removeItem<Student>(KEY, id)
+export function applyUpdate(existing: Student, data: UpdateStudentInput): Student {
+  return { ...existing, ...data, updatedAt: new Date().toISOString() }
 }

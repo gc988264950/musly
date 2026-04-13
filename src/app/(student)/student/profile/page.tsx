@@ -1,20 +1,22 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { User, Music, GraduationCap, Mail, Phone } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStudentById } from '@/lib/db/students'
+import type { Student } from '@/lib/db/types'
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StudentProfilePage() {
   const { user } = useAuth()
   const linkedStudentId = user?.linkedStudentId
+  const [student, setStudent] = useState<Student | null>(null)
 
-  const student = useMemo(
-    () => (linkedStudentId ? getStudentById(linkedStudentId) : null),
-    [linkedStudentId]
-  )
+  useEffect(() => {
+    if (!linkedStudentId) return
+    getStudentById(linkedStudentId).then(setStudent).catch(() => {})
+  }, [linkedStudentId])
 
   if (!student) {
     return (

@@ -1,16 +1,25 @@
-// TODO (Supabase): replace localStorage helpers with async Supabase client calls
-
-import { readCollection, upsertItem, removeItem, removeManyWhere } from './storage'
+import { createClient } from '@/lib/supabase/client'
 import type { Payment, PaymentStatus, CreatePaymentInput, UpdatePaymentInput, StudentFinancial } from './types'
 
-const KEY = 'harmoniq_payments'
+// ─── Row mapper ───────────────────────────────────────────────────────────────
 
-function now() {
-  return new Date().toISOString()
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(r: any): Payment {
+  return {
+    id:             r.id,
+    studentId:      r.student_id,
+    teacherId:      r.teacher_id,
+    referenceMonth: r.reference_month,
+    dueDate:        r.due_date,
+    paidAt:         r.paid_at ?? null,
+    amount:         Number(r.amount) ?? 0,
+    notes:          r.notes ?? '',
+    createdAt:      r.created_at,
+    updatedAt:      r.updated_at,
+  }
 }
 
 // ─── Status computation ───────────────────────────────────────────────────────
-// Status is never stored — always derived at read time so it stays current.
 
 export function computePaymentStatus(payment: Payment): PaymentStatus {
   if (payment.paidAt) return 'pago'
@@ -18,13 +27,10 @@ export function computePaymentStatus(payment: Payment): PaymentStatus {
   return today > payment.dueDate ? 'atrasado' : 'pendente'
 }
 
-/**
- * Compute status for a student-month pair even when no Payment record exists yet.
- */
 export function computeStatusForMonth(
   financial: StudentFinancial,
   payment: Payment | null,
-  referenceMonth: string, // "YYYY-MM"
+  referenceMonth: string,
 ): PaymentStatus {
   if (payment?.paidAt) return 'pago'
   const dueDate = getDueDateForMonth(financial.dueDayOfMonth, referenceMonth)
@@ -32,7 +38,6 @@ export function computeStatusForMonth(
   return today > dueDate ? 'atrasado' : 'pendente'
 }
 
-/** Returns "YYYY-MM-DD" for a given month and day-of-month, clamped to the last day. */
 export function getDueDateForMonth(dueDayOfMonth: number, referenceMonth: string): string {
   const [y, m] = referenceMonth.split('-').map(Number)
   const lastDay = new Date(y, m, 0).getDate()
@@ -42,56 +47,93 @@ export function getDueDateForMonth(dueDayOfMonth: number, referenceMonth: string
 
 // ─── Queries ──────────────────────────────────────────────────────────────────
 
-export function getPaymentsByStudent(studentId: string): Payment[] {
-  // TODO (Supabase): SELECT * FROM payments WHERE student_id = $1 ORDER BY due_date DESC
-  return readCollection<Payment>(KEY)
-    .filter((p) => p.studentId === studentId)
-    .sort((a, b) => b.dueDate.localeCompare(a.dueDate))
+export async function getPaymentsByStudent(studentId: string): Promise<Payment[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('payments')
+    .select()
+    .eq('student_id', studentId)
+    .order('due_date', { ascending: false })
+  if (error) throw error
+  return (data ?? []).map(fromRow)
 }
 
-export function getPaymentForStudentMonth(studentId: string, referenceMonth: string): Payment | null {
-  // TODO (Supabase): SELECT * FROM payments WHERE student_id = $1 AND reference_month = $2 LIMIT 1
-  return (
-    readCollection<Payment>(KEY).find(
-      (p) => p.studentId === studentId && p.referenceMonth === referenceMonth
-    ) ?? null
-  )
+export async function getPaymentForStudentMonth(
+  studentId: string,
+  referenceMonth: string,
+): Promise<Payment | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('payments')
+    .select()
+    .eq('student_id', studentId)
+    .eq('reference_month', referenceMonth)
+    .maybeSingle()
+  if (error) throw error
+  return data ? fromRow(data) : null
 }
 
-export function getAllPayments(teacherId: string): Payment[] {
-  // TODO (Supabase): SELECT * FROM payments WHERE teacher_id = $1
-  return readCollection<Payment>(KEY).filter((p) => p.teacherId === teacherId)
-}
-
-export function getPaymentsByMonth(teacherId: string, referenceMonth: string): Payment[] {
-  // TODO (Supabase): SELECT * FROM payments WHERE teacher_id = $1 AND reference_month = $2
-  return readCollection<Payment>(KEY).filter(
-    (p) => p.teacherId === teacherId && p.referenceMonth === referenceMonth
-  )
+export async function getAllPayments(teacherId: string): Promise<Payment[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('payments')
+    .select()
+    .eq('teacher_id', teacherId)
+  if (error) throw error
+  return (data ?? []).map(fromRow)
 }
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
-export function createPayment(data: CreatePaymentInput): Payment {
-  // TODO (Supabase): INSERT INTO payments (...) VALUES (...) RETURNING *
-  const payment: Payment = { ...data, id: crypto.randomUUID(), createdAt: now(), updatedAt: now() }
-  return upsertItem<Payment>(KEY, payment)
+export async function createPayment(payment: Payment): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('payments').insert({
+    id:              payment.id,
+    teacher_id:      payment.teacherId,
+    student_id:      payment.studentId,
+    reference_month: payment.referenceMonth,
+    due_date:        payment.dueDate,
+    paid_at:         payment.paidAt,
+    amount:          payment.amount,
+    notes:           payment.notes,
+    created_at:      payment.createdAt,
+    updated_at:      payment.updatedAt,
+  })
+  if (error) throw error
 }
 
-export function updatePayment(id: string, data: UpdatePaymentInput): Payment {
-  // TODO (Supabase): UPDATE payments SET ... WHERE id = $1 RETURNING *
-  const existing = readCollection<Payment>(KEY).find((p) => p.id === id)
-  if (!existing) throw new Error('Pagamento não encontrado.')
-  const updated: Payment = { ...existing, ...data, updatedAt: now() }
-  return upsertItem<Payment>(KEY, updated)
+export async function updatePayment(payment: Payment): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('payments')
+    .update({
+      reference_month: payment.referenceMonth,
+      due_date:        payment.dueDate,
+      paid_at:         payment.paidAt,
+      amount:          payment.amount,
+      notes:           payment.notes,
+      updated_at:      new Date().toISOString(),
+    })
+    .eq('id', payment.id)
+  if (error) throw error
 }
 
-export function deletePayment(id: string): void {
-  // TODO (Supabase): DELETE FROM payments WHERE id = $1
-  removeItem<Payment>(KEY, id)
+export async function deletePayment(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('payments').delete().eq('id', id)
+  if (error) throw error
 }
 
-export function deletePaymentsByStudent(studentId: string): void {
-  // TODO (Supabase): DELETE FROM payments WHERE student_id = $1
-  removeManyWhere<Payment>(KEY, (p) => p.studentId === studentId)
+// ─── Builders ─────────────────────────────────────────────────────────────────
+
+export function buildPayment(
+  data: CreatePaymentInput,
+  id = crypto.randomUUID(),
+): Payment {
+  const now = new Date().toISOString()
+  return { id, ...data, createdAt: now, updatedAt: now }
+}
+
+export function applyUpdate(existing: Payment, data: UpdatePaymentInput): Payment {
+  return { ...existing, ...data, updatedAt: new Date().toISOString() }
 }

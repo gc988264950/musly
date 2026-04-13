@@ -1,47 +1,64 @@
-// TODO (Supabase): replace localStorage helpers with async Supabase client calls
-
-import { readCollection, upsertItem, removeItem, removeManyWhere } from './storage'
+import { createClient } from '@/lib/supabase/client'
 import type { StudentNote, CreateNoteInput, UpdateNoteInput } from './types'
 
-const KEY = 'harmoniq_notes'
-
-function now() {
-  return new Date().toISOString()
-}
-
-export function getNotesByStudent(studentId: string): StudentNote[] {
-  // TODO (Supabase): SELECT * FROM student_notes WHERE student_id = studentId ORDER BY created_at DESC
-  return readCollection<StudentNote>(KEY)
-    .filter((n) => n.studentId === studentId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-}
-
-export function createNote(data: CreateNoteInput): StudentNote {
-  // TODO (Supabase): INSERT INTO student_notes (...) VALUES (...) RETURNING *
-  const note: StudentNote = {
-    ...data,
-    id: crypto.randomUUID(),
-    createdAt: now(),
-    updatedAt: now(),
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(r: any): StudentNote {
+  return {
+    id:        r.id,
+    studentId: r.student_id,
+    teacherId: r.teacher_id,
+    content:   r.content   ?? '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   }
-  return upsertItem<StudentNote>(KEY, note)
 }
 
-export function updateNote(id: string, data: UpdateNoteInput): StudentNote {
-  // TODO (Supabase): UPDATE student_notes SET content = $1, updated_at = NOW() WHERE id = $2 RETURNING *
-  const notes = readCollection<StudentNote>(KEY)
-  const existing = notes.find((n) => n.id === id)
-  if (!existing) throw new Error('Anotação não encontrada.')
-  const updated: StudentNote = { ...existing, ...data, updatedAt: now() }
-  return upsertItem<StudentNote>(KEY, updated)
+export async function getNotesByStudent(studentId: string): Promise<StudentNote[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('student_notes')
+    .select()
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []).map(fromRow)
 }
 
-export function deleteNote(id: string): void {
-  // TODO (Supabase): DELETE FROM student_notes WHERE id = $1
-  removeItem<StudentNote>(KEY, id)
+export async function createNote(note: StudentNote): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('student_notes').insert({
+    id:         note.id,
+    teacher_id: note.teacherId,
+    student_id: note.studentId,
+    content:    note.content,
+    created_at: note.createdAt,
+    updated_at: note.updatedAt,
+  })
+  if (error) throw error
 }
 
-export function deleteNotesByStudent(studentId: string): void {
-  // TODO (Supabase): DELETE FROM student_notes WHERE student_id = $1
-  removeManyWhere<StudentNote>(KEY, (n) => n.studentId === studentId)
+export async function updateNote(note: StudentNote): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('student_notes')
+    .update({ content: note.content, updated_at: new Date().toISOString() })
+    .eq('id', note.id)
+  if (error) throw error
+}
+
+export async function deleteNote(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('student_notes').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ─── Builders ─────────────────────────────────────────────────────────────────
+
+export function buildNote(data: CreateNoteInput, id = crypto.randomUUID()): StudentNote {
+  const now = new Date().toISOString()
+  return { id, ...data, createdAt: now, updatedAt: now }
+}
+
+export function applyUpdate(existing: StudentNote, data: UpdateNoteInput): StudentNote {
+  return { ...existing, ...data, updatedAt: new Date().toISOString() }
 }

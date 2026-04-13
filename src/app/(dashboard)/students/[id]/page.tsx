@@ -1222,7 +1222,7 @@ function TabAIPlanner({ profile }: { profile: ReturnType<typeof useStudentProfil
     // Simulate AI thinking delay
     await new Promise((resolve) => setTimeout(resolve, 1600))
 
-    const teachingMethod = user ? (getUserSettings(user.id)?.teachingMethod ?? '') : ''
+    const teachingMethod = user ? ((await getUserSettings(user.id))?.teachingMethod ?? '') : ''
     const result = generateLessonPlan({
       instrument: student!.instrument,
       duration,
@@ -2246,14 +2246,14 @@ function TabPlanejamento({ profile }: { profile: ReturnType<typeof useStudentPro
     return sortedLessons
   })()
 
-  function openLesson(lessonId: string) {
+  async function openLesson(lessonId: string) {
     setSelectedLessonId(lessonId)
     setPlanSaved(false)
     setChatMessages([])
     setChatExpanded(false)
     const existing =
       lessonPlans.find((p) => p.lessonId === lessonId) ??
-      getLessonPlanByLessonId(lessonId)
+      await getLessonPlanByLessonId(lessonId)
     if (existing) {
       setPlanObjective(existing.planObjective)
       setPlanContent(existing.planContent)
@@ -2271,10 +2271,10 @@ function TabPlanejamento({ profile }: { profile: ReturnType<typeof useStudentPro
     }
   }
 
-  function handleSavePlan() {
+  async function handleSavePlan() {
     if (!selectedLessonId) return
     const existingInHook = lessonPlans.find((p) => p.lessonId === selectedLessonId)
-    const existingInDb = getLessonPlanByLessonId(selectedLessonId)
+    const existingInDb = await getLessonPlanByLessonId(selectedLessonId)
     const existing = existingInHook ?? existingInDb
     if (existing) {
       updateLessonPlan(existing.id, { planObjective, planContent, planExercises, planObservations, planPending, planNextLesson })

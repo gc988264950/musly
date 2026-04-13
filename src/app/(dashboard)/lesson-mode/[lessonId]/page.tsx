@@ -9,9 +9,9 @@ import {
   Lightbulb, Flag, BookOpen, FileText, Image as ImageIcon,
   File, Radio, ClipboardList, Send, Plus,
 } from 'lucide-react'
-import { getLessonById, updateLesson } from '@/lib/db/lessons'
+import { getLessonById, updateLesson, applyUpdate as applyLessonUpdate } from '@/lib/db/lessons'
 import { getStudentById } from '@/lib/db/students'
-import { getLessonPlansByStudent, getLessonPlanByLessonId, getOrCreateLessonPlan, updateLessonPlan } from '@/lib/db/lessonPlans'
+import { getLessonPlansByStudent, getLessonPlanByLessonId, getOrCreateLessonPlan, updateLessonPlan, applyUpdate as applyPlanUpdate } from '@/lib/db/lessonPlans'
 import { getStudentFiles } from '@/lib/db/studentFiles'
 import { MaterialViewerModal } from '@/components/ui/MaterialViewerModal'
 import type { Lesson, LessonPlan, StudentFile } from '@/lib/db/types'
@@ -143,60 +143,65 @@ export default function LessonModePage() {
 
   // ── Load data ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const l = getLessonById(lessonId)
-    if (!l) { setLoading(false); return }
-    setLesson(l)
-    setPerformanceTags(l.performanceTags ?? [])
+    async function load() {
+      const l = await getLessonById(lessonId)
+      if (!l) { setLoading(false); return }
+      setLesson(l)
+      setPerformanceTags(l.performanceTags ?? [])
 
-    const student = getStudentById(l.studentId)
-    if (student) {
-      setStudentName(student.name)
-      setStudentInstrument(student.instrument)
-      setStudentColor(student.color)
-      setStudentMeetLink(student.meetLink ?? '')
-      setStudentId(student.id)
-      setMaterials(getStudentFiles(student.id).filter(
-        (f) => f.mimeType === 'application/pdf' || f.mimeType.startsWith('image/')
-      ))
+      const [student, perLessonPlan, plans] = await Promise.all([
+        getStudentById(l.studentId),
+        getLessonPlanByLessonId(l.id),
+        getLessonPlansByStudent(l.studentId),
+      ])
+
+      if (student) {
+        setStudentName(student.name)
+        setStudentInstrument(student.instrument)
+        setStudentColor(student.color)
+        setStudentMeetLink(student.meetLink ?? '')
+        setStudentId(student.id)
+        setMaterials(getStudentFiles(student.id).filter(
+          (f) => f.mimeType === 'application/pdf' || f.mimeType.startsWith('image/')
+        ))
+      }
+
+      // Try per-lesson plan first, then fall back to student plans
+      if (perLessonPlan) {
+        setLessonPlan(perLessonPlan)
+        setPlanPlanId(perLessonPlan.id)
+        setPlanObjective(perLessonPlan.planObjective ?? '')
+        setPlanContent(perLessonPlan.planContent ?? '')
+        setPlanExercises(perLessonPlan.planExercises ?? '')
+        setPlanObservations(perLessonPlan.planObservations ?? '')
+        setPlanPending(perLessonPlan.planPending ?? '')
+        setPlanNextLesson(perLessonPlan.planNextLesson ?? '')
+        setShowPlanEditor(true)
+      } else {
+        if (plans.length > 0) setLessonPlan(plans[0])
+      }
+
+      // Restore notes from localStorage
+      const savedNotes = localStorage.getItem(`harmoniq_session_notes_${lessonId}`)
+      setNotes(savedNotes !== null ? savedNotes : (l.notes ?? ''))
+
+      // Timer persistence: restore or create start timestamp
+      const timerKey = `harmoniq_lesson_start_${lessonId}`
+      const savedStart = localStorage.getItem(timerKey)
+      if (savedStart) {
+        const ts = parseInt(savedStart, 10)
+        startTimeRef.current = ts
+        setStartedAt(ts)
+      } else {
+        const now = Date.now()
+        startTimeRef.current = now
+        setStartedAt(now)
+        localStorage.setItem(timerKey, String(now))
+      }
+
+      setLoading(false)
     }
-
-    // Try per-lesson plan first, then fall back to student plans
-    const perLessonPlan = getLessonPlanByLessonId(l.id)
-    if (perLessonPlan) {
-      setLessonPlan(perLessonPlan)
-      setPlanPlanId(perLessonPlan.id)
-      setPlanObjective(perLessonPlan.planObjective ?? '')
-      setPlanContent(perLessonPlan.planContent ?? '')
-      setPlanExercises(perLessonPlan.planExercises ?? '')
-      setPlanObservations(perLessonPlan.planObservations ?? '')
-      setPlanPending(perLessonPlan.planPending ?? '')
-      setPlanNextLesson(perLessonPlan.planNextLesson ?? '')
-      // Always open the editor when a linked plan exists
-      setShowPlanEditor(true)
-    } else {
-      const plans = getLessonPlansByStudent(l.studentId)
-      if (plans.length > 0) setLessonPlan(plans[0])
-    }
-
-    // Restore notes from localStorage
-    const savedNotes = localStorage.getItem(`harmoniq_session_notes_${lessonId}`)
-    setNotes(savedNotes !== null ? savedNotes : (l.notes ?? ''))
-
-    // Timer persistence: restore or create start timestamp
-    const timerKey = `harmoniq_lesson_start_${lessonId}`
-    const savedStart = localStorage.getItem(timerKey)
-    if (savedStart) {
-      const ts = parseInt(savedStart, 10)
-      startTimeRef.current = ts
-      setStartedAt(ts)
-    } else {
-      const now = Date.now()
-      startTimeRef.current = now
-      setStartedAt(now)
-      localStorage.setItem(timerKey, String(now))
-    }
-
-    setLoading(false)
+    load()
   }, [lessonId])
 
   // ── Timer interval ────────────────────────────────────────────────────────
@@ -226,15 +231,15 @@ export default function LessonModePage() {
   }, [])
 
   // ── Save lesson planning blocks ───────────────────────────────────────────
-  function savePlanBlocks() {
+  async function savePlanBlocks() {
     if (!lesson || !studentId) return
     try {
-      const plan = getOrCreateLessonPlan({
+      const plan = await getOrCreateLessonPlan({
         lessonId: lesson.id,
         studentId,
         teacherId: lesson.teacherId,
       })
-      updateLessonPlan(plan.id, {
+      const updated = applyPlanUpdate(plan, {
         planObjective,
         planContent,
         planExercises,
@@ -242,6 +247,7 @@ export default function LessonModePage() {
         planPending,
         planNextLesson,
       })
+      await updateLessonPlan(updated)
       setPlanPlanId(plan.id)
       setPlanSaved(true)
       setTimeout(() => setPlanSaved(false), 2000)
@@ -263,20 +269,17 @@ export default function LessonModePage() {
 
   function doFinish(homework: string) {
     if (!lesson) return
-    try {
-      const updated = updateLesson(lesson.id, {
-        status: 'concluída',
-        notes: notes.trim(),
-        performanceTags,
-        homework: homework.trim(),
-        homeworkSentAt: homework.trim() ? new Date().toISOString() : null,
-      })
-      setLesson(updated)
-      localStorage.removeItem(`harmoniq_session_notes_${lessonId}`)
-      localStorage.removeItem(`harmoniq_lesson_start_${lessonId}`)
-    } catch {
-      // If lesson was already deleted, still show feedback
-    }
+    const updated = applyLessonUpdate(lesson, {
+      status: 'concluída',
+      notes: notes.trim(),
+      performanceTags,
+      homework: homework.trim(),
+      homeworkSentAt: homework.trim() ? new Date().toISOString() : null,
+    })
+    setLesson(updated)
+    updateLesson(updated).catch(() => {/* lesson may have been deleted */})
+    localStorage.removeItem(`harmoniq_session_notes_${lessonId}`)
+    localStorage.removeItem(`harmoniq_lesson_start_${lessonId}`)
     setFeedback(buildFeedback(performanceTags, notes))
     setHomeworkSent(!!homework.trim())
     setShowHomework(false)

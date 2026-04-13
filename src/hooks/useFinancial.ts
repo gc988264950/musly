@@ -4,14 +4,13 @@ import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useStudents } from '@/hooks/useStudents'
 import * as financialDb from '@/lib/db/financial'
-import * as paymentsDb from '@/lib/db/payments'
+import * as paymentsDb  from '@/lib/db/payments'
 import type {
   StudentFinancial,
   Payment,
   PaymentStatus,
   CreatePaymentInput,
   UpdatePaymentInput,
-  CreateFinancialInput,
   UpdateFinancialInput,
   Student,
 } from '@/lib/db/types'
@@ -33,7 +32,7 @@ export function formatMonth(ym: string): string {
   const [y, m] = ym.split('-').map(Number)
   const label = new Date(y, m - 1, 1).toLocaleDateString('pt-BR', {
     month: 'long',
-    year: 'numeric',
+    year:  'numeric',
   })
   return label.charAt(0).toUpperCase() + label.slice(1)
 }
@@ -45,90 +44,90 @@ export function formatCurrency(value: number): string {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface StudentFinancialRow {
-  student: Student
-  financial: StudentFinancial | null
-  currentPayment: Payment | null     // payment record for the selected month
-  status: PaymentStatus | null        // null when no financial settings
-  dueDate: string | null              // "YYYY-MM-DD" for selected month
+  student:        Student
+  financial:      StudentFinancial | null
+  currentPayment: Payment | null
+  status:         PaymentStatus | null
+  dueDate:        string | null
 }
 
 export interface FinancialSummary {
-  revenue: number         // total paid in selected month
-  forecast: number        // total monthly fees for all students with settings
-  paidCount: number
-  pendingCount: number
-  overdueCount: number
+  revenue:           number
+  forecast:          number
+  paidCount:         number
+  pendingCount:      number
+  overdueCount:      number
   totalWithSettings: number
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
-/**
- * Aggregates financial data across all students for the billing dashboard.
- *
- * Backed by localStorage now; swap `db.*` calls for async Supabase queries
- * when integrating the backend.
- */
 export function useFinancial() {
   const { user } = useAuth()
   const { students, loading: studentsLoading } = useStudents()
 
-  const [allFinancial, setAllFinancial] = useState<StudentFinancial[]>([])
-  const [allPayments, setAllPayments] = useState<Payment[]>([])
-  const [selectedMonth, setSelectedMonth] = useState<string>(currentYearMonth())
-  const [loading, setLoading] = useState(true)
+  const [allFinancial,   setAllFinancial]   = useState<StudentFinancial[]>([])
+  const [allPayments,    setAllPayments]    = useState<Payment[]>([])
+  const [selectedMonth,  setSelectedMonth]  = useState<string>(currentYearMonth())
+  const [loading,        setLoading]        = useState(true)
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (!user) return
-    setAllFinancial(financialDb.getAllFinancial(user.id))
-    setAllPayments(paymentsDb.getAllPayments(user.id))
-    setLoading(false)
+    setLoading(true)
+    try {
+      const [fin, pays] = await Promise.all([
+        financialDb.getAllFinancial(user.id),
+        paymentsDb.getAllPayments(user.id),
+      ])
+      setAllFinancial(fin)
+      setAllPayments(pays)
+    } catch (err) {
+      console.error('[useFinancial] load error:', err)
+    } finally {
+      setLoading(false)
+    }
   }, [user])
 
   useEffect(() => {
     if (!studentsLoading) load()
   }, [load, studentsLoading])
 
-  // ── Per-student view for selected month ───────────────────────────────────
+  // ── Per-student view ──────────────────────────────────────────────────────
 
   const rows = useMemo<StudentFinancialRow[]>(() => {
     return students.map((student) => {
-      const financial = allFinancial.find((f) => f.studentId === student.id) ?? null
-      const currentPayment =
-        allPayments.find(
-          (p) => p.studentId === student.id && p.referenceMonth === selectedMonth
-        ) ?? null
+      const financial     = allFinancial.find((f) => f.studentId === student.id) ?? null
+      const currentPayment = allPayments.find(
+        (p) => p.studentId === student.id && p.referenceMonth === selectedMonth
+      ) ?? null
 
       if (!financial) {
         return { student, financial: null, currentPayment: null, status: null, dueDate: null }
       }
 
       const dueDate = paymentsDb.getDueDateForMonth(financial.dueDayOfMonth, selectedMonth)
-      const status = paymentsDb.computeStatusForMonth(financial, currentPayment, selectedMonth)
+      const status  = paymentsDb.computeStatusForMonth(financial, currentPayment, selectedMonth)
       return { student, financial, currentPayment, status, dueDate }
     })
   }, [students, allFinancial, allPayments, selectedMonth])
 
-  // ── Summary statistics ────────────────────────────────────────────────────
+  // ── Summary ───────────────────────────────────────────────────────────────
 
   const summary = useMemo<FinancialSummary>(() => {
     const withSettings = rows.filter((r) => r.financial !== null)
-    const paid = withSettings.filter((r) => r.status === 'pago')
+    const paid    = withSettings.filter((r) => r.status === 'pago')
     const pending = withSettings.filter((r) => r.status === 'pendente')
     const overdue = withSettings.filter((r) => r.status === 'atrasado')
 
-    const revenue = paid.reduce((sum, r) => {
-      return sum + (r.currentPayment?.amount ?? r.financial!.monthlyFee)
-    }, 0)
-
-    const forecast = withSettings.reduce((sum, r) => sum + r.financial!.monthlyFee, 0)
+    const revenue  = paid.reduce((s, r) => s + (r.currentPayment?.amount ?? r.financial!.monthlyFee), 0)
+    const forecast = withSettings.reduce((s, r) => s + r.financial!.monthlyFee, 0)
 
     return {
       revenue,
       forecast,
-      paidCount: paid.length,
-      pendingCount: pending.length,
-      overdueCount: overdue.length,
+      paidCount:         paid.length,
+      pendingCount:      pending.length,
+      overdueCount:      overdue.length,
       totalWithSettings: withSettings.length,
     }
   }, [rows])
@@ -138,64 +137,68 @@ export function useFinancial() {
   const registerPayment = useCallback(
     (data: Omit<CreatePaymentInput, 'teacherId'>): Payment => {
       if (!user) throw new Error('Usuário não autenticado.')
-      // Check for existing payment for this student+month and replace it
       const existing = allPayments.find(
         (p) => p.studentId === data.studentId && p.referenceMonth === data.referenceMonth
       )
-      let payment: Payment
       if (existing) {
-        payment = paymentsDb.updatePayment(existing.id, {
-          paidAt: data.paidAt,
-          amount: data.amount,
-          notes: data.notes,
+        const updated = paymentsDb.applyUpdate(existing, {
+          paidAt:  data.paidAt,
+          amount:  data.amount,
+          notes:   data.notes,
           dueDate: data.dueDate,
         })
-        setAllPayments((prev) => prev.map((p) => (p.id === existing.id ? payment : p)))
-      } else {
-        payment = paymentsDb.createPayment({ ...data, teacherId: user.id })
-        setAllPayments((prev) => [...prev, payment])
+        setAllPayments((prev) => prev.map((p) => (p.id === existing.id ? updated : p)))
+        paymentsDb.updatePayment(updated).catch(() => load())
+        return updated
       }
+      const payment = paymentsDb.buildPayment({ ...data, teacherId: user.id })
+      setAllPayments((prev) => [...prev, payment])
+      paymentsDb.createPayment(payment).catch(() => load())
       return payment
     },
-    [user, allPayments]
+    [user, allPayments, load]
   )
 
   const updatePayment = useCallback((id: string, data: UpdatePaymentInput): Payment => {
-    const updated = paymentsDb.updatePayment(id, data)
+    const existing = allPayments.find((p) => p.id === id)
+    if (!existing) throw new Error('Pagamento não encontrado.')
+    const updated = paymentsDb.applyUpdate(existing, data)
     setAllPayments((prev) => prev.map((p) => (p.id === id ? updated : p)))
+    paymentsDb.updatePayment(updated).catch(() => load())
     return updated
-  }, [])
+  }, [allPayments, load])
 
   const deletePayment = useCallback((id: string): void => {
-    paymentsDb.deletePayment(id)
     setAllPayments((prev) => prev.filter((p) => p.id !== id))
-  }, [])
+    paymentsDb.deletePayment(id).catch(() => load())
+  }, [load])
 
-  // ── Financial settings actions ────────────────────────────────────────────
+  // ── Financial settings ────────────────────────────────────────────────────
 
   const saveFinancial = useCallback(
     (studentId: string, data: UpdateFinancialInput): StudentFinancial => {
       if (!user) throw new Error('Usuário não autenticado.')
       const existing = allFinancial.find((f) => f.studentId === studentId)
-      let record: StudentFinancial
-      if (existing) {
-        record = financialDb.updateFinancial(studentId, data)!
-      } else {
-        record = financialDb.upsertFinancial({
+      const record = financialDb.buildFinancial(
+        {
           studentId,
-          teacherId: user.id,
-          monthlyFee: data.monthlyFee ?? 0,
-          dueDayOfMonth: data.dueDayOfMonth ?? 10,
-        })
-      }
+          teacherId:      user.id,
+          monthlyFee:     data.monthlyFee     ?? existing?.monthlyFee     ?? 0,
+          dueDayOfMonth:  data.dueDayOfMonth  ?? existing?.dueDayOfMonth  ?? 10,
+          paymentLink:    data.paymentLink    ?? existing?.paymentLink,
+          contactLink:    data.contactLink    ?? existing?.contactLink,
+        },
+        existing?.id,
+      )
       setAllFinancial((prev) =>
         prev.some((f) => f.studentId === studentId)
           ? prev.map((f) => (f.studentId === studentId ? record : f))
           : [...prev, record]
       )
+      financialDb.upsertFinancial(record).catch(() => load())
       return record
     },
-    [user, allFinancial]
+    [user, allFinancial, load]
   )
 
   return {

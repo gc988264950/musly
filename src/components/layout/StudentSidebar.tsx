@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -18,6 +18,7 @@ import { getInitials } from '@/lib/utils'
 import { getFinancialByStudent } from '@/lib/db/financial'
 import { getPaymentForStudentMonth, computeStatusForMonth, getDueDateForMonth } from '@/lib/db/payments'
 import { MuslyMark } from '@/components/ui/MuslyLogo'
+import type { StudentFinancial } from '@/lib/db/types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -47,33 +48,36 @@ export default function StudentSidebar({
 }: StudentSidebarProps) {
   const pathname = usePathname()
   const { user, signOut } = useAuth()
+  const [billingAlertLevel, setBillingAlertLevel] = useState<'red' | 'yellow' | null>(null)
 
   const fullName = user ? `${user.firstName} ${user.lastName}` : ''
   const initials = fullName ? getInitials(fullName) : '?'
 
   // ── Billing alert badge ───────────────────────────────────────────────────
-  const billingAlertLevel = useMemo<'red' | 'yellow' | null>(() => {
+  useEffect(() => {
     const linkedStudentId = user?.linkedStudentId
-    if (!linkedStudentId) return null
-
-    const financial = getFinancialByStudent(linkedStudentId)
-    if (!financial) return null
+    if (!linkedStudentId) return
 
     const thisMonth = currentYearMonth()
-    const payment = getPaymentForStudentMonth(linkedStudentId, thisMonth)
-    const status = computeStatusForMonth(financial, payment, thisMonth)
 
-    if (status === 'pago') return null
-    if (status === 'atrasado') return 'red'
+    Promise.all([
+      getFinancialByStudent(linkedStudentId),
+      getPaymentForStudentMonth(linkedStudentId, thisMonth),
+    ]).then(([financial, payment]) => {
+      if (!financial) { setBillingAlertLevel(null); return }
 
-    const dueDate = getDueDateForMonth(financial.dueDayOfMonth, thisMonth)
-    const todayDate = new Date()
-    todayDate.setHours(0, 0, 0, 0)
-    const dueDateObj = new Date(dueDate + 'T00:00:00')
-    const diffDays = Math.round((dueDateObj.getTime() - todayDate.getTime()) / 86400000)
+      const status = computeStatusForMonth(financial as StudentFinancial, payment, thisMonth)
+      if (status === 'pago') { setBillingAlertLevel(null); return }
+      if (status === 'atrasado') { setBillingAlertLevel('red'); return }
 
-    if (diffDays <= 3) return 'yellow'
-    return null
+      const dueDate = getDueDateForMonth((financial as StudentFinancial).dueDayOfMonth, thisMonth)
+      const todayDate = new Date()
+      todayDate.setHours(0, 0, 0, 0)
+      const dueDateObj = new Date(dueDate + 'T00:00:00')
+      const diffDays = Math.round((dueDateObj.getTime() - todayDate.getTime()) / 86400000)
+
+      setBillingAlertLevel(diffDays <= 3 ? 'yellow' : null)
+    }).catch(() => {})
   }, [user?.linkedStudentId])
 
   return (

@@ -26,7 +26,7 @@ export default function StudentRepertoirePage() {
 
   useEffect(() => {
     if (!linkedStudentId) return
-    setItems(getRepertoireByStudent(linkedStudentId))
+    getRepertoireByStudent(linkedStudentId).then(setItems).catch(() => {})
   }, [linkedStudentId])
 
   const byStatus = {

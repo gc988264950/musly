@@ -60,6 +60,7 @@ export function useAlerts(): void {
   useEffect(() => {
     if (!user || students.length === 0) return
 
+    const run = async () => {
     const state = loadState(user.id)
     const today = new Date()
     const todayIso = todayStr()
@@ -130,10 +131,10 @@ export function useAlerts(): void {
 
     // ── 3. Repeated difficulties (progress record + 3+ lesson plans) ──────────
     for (const student of students) {
-      const progress = getProgressByStudent(student.id)
+      const progress = await getProgressByStudent(student.id).catch(() => null)
       if (!progress || progress.identifiedDifficulties.length === 0) continue
 
-      const plans = getLessonPlansByStudent(student.id)
+      const plans = await getLessonPlansByStudent(student.id).catch(() => [] as import('@/lib/db/types').LessonPlan[])
       if (plans.length < 3) continue
 
       const key = `repeated_difficulty_${student.id}`
@@ -185,6 +186,9 @@ export function useAlerts(): void {
     if (generated > 0) {
       window.dispatchEvent(new CustomEvent('harmoniq:notifications-updated'))
     }
+    }
+
+    run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, students.length, lessons.length])
 }

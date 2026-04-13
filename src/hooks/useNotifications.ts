@@ -9,9 +9,10 @@ export function useNotifications() {
   const { user } = useAuth()
   const [notifications, setNotifications] = useState<Notification[]>([])
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (!user) return
-    setNotifications(db.getNotifications(user.id))
+    const data = await db.getNotifications(user.id).catch(() => [] as Notification[])
+    setNotifications(data)
   }, [user])
 
   useEffect(() => {
@@ -28,31 +29,31 @@ export function useNotifications() {
   const unreadCount = notifications.filter((n) => !n.read).length
 
   const add = useCallback(
-    (type: NotificationType, message: string, entityId?: string) => {
+    async (type: NotificationType, message: string, entityId?: string) => {
       if (!user) return
-      db.createNotification(user.id, type, message, entityId)
-      setNotifications(db.getNotifications(user.id))
+      await db.createNotification(user.id, type, message, entityId).catch(() => {})
+      load()
     },
-    [user]
+    [user, load]
   )
 
-  const markAllRead = useCallback(() => {
+  const markAllRead = useCallback(async () => {
     if (!user) return
-    db.markAllRead(user.id)
+    await db.markAllRead(user.id).catch(() => {})
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
   }, [user])
 
   const remove = useCallback(
     (id: string) => {
-      db.deleteNotification(id)
+      db.deleteNotification(id).catch(() => {})
       setNotifications((prev) => prev.filter((n) => n.id !== id))
     },
     []
   )
 
-  const clearAll = useCallback(() => {
+  const clearAll = useCallback(async () => {
     if (!user) return
-    db.clearAllNotifications(user.id)
+    await db.clearAllNotifications(user.id).catch(() => {})
     setNotifications([])
   }, [user])
 

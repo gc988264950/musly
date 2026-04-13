@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Check, Save, Plus, Trash2, AlertCircle, X } from 'lucide-react'
+import { Check, Save, Plus, Trash2, AlertCircle, X, KeyRound, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getUserSettings, saveUserSettings } from '@/lib/db/userSettings'
-import { getStudents, updateStudent } from '@/lib/db/students'
+import { getStudents, updateStudent, applyUpdate as applyStudentUpdate } from '@/lib/db/students'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -68,9 +68,18 @@ export default function SettingsPage() {
   const [accountError, setAccountError] = useState('')
   const [deletingAccountId, setDeletingAccountId] = useState<string | null>(null)
 
+  // Reset student password
+  const [resetTarget,      setResetTarget]      = useState<StudentAccount | null>(null)
+  const [resetPassword,    setResetPassword]    = useState('')
+  const [showResetPwd,     setShowResetPwd]     = useState(false)
+  const [resetSaving,      setResetSaving]      = useState(false)
+  const [resetError,       setResetError]       = useState('')
+  const [resetSuccess,     setResetSuccess]     = useState(false)
+
   const reloadAccounts = useCallback(async () => {
     if (!user) return
-    setStudents(getStudents(user.id))
+    const studs = await getStudents(user.id).catch(() => [] as Student[])
+    setStudents(studs)
     try {
       const res = await fetch(`/api/admin/list-students?teacherId=${encodeURIComponent(user.id)}`)
       if (res.ok) {
@@ -83,11 +92,12 @@ export default function SettingsPage() {
   // Load saved settings on mount
   useEffect(() => {
     if (!user) return
-    const settings = getUserSettings(user.id)
-    setFirstName(settings?.firstName || user.firstName || '')
-    setLastName(settings?.lastName  || user.lastName  || '')
-    setEmail(settings?.email        || user.email     || '')
-    setTeachingMethod(settings?.teachingMethod || '')
+    getUserSettings(user.id).then((settings) => {
+      setFirstName(settings?.firstName || user.firstName || '')
+      setLastName(settings?.lastName  || user.lastName  || '')
+      setEmail(settings?.email        || user.email     || '')
+      setTeachingMethod(settings?.teachingMethod || '')
+    }).catch(() => {})
     reloadAccounts()
   }, [user, reloadAccounts])
 
@@ -110,7 +120,7 @@ export default function SettingsPage() {
       })
       if (error) throw new Error(error.message)
 
-      saveUserSettings(user.id, {
+      await saveUserSettings(user.id, {
         firstName: firstName.trim(),
         lastName:  lastName.trim(),
         email:     email.trim(),
@@ -129,20 +139,22 @@ export default function SettingsPage() {
   function handleSaveMethod() {
     if (!user) return
     setMethodSaving(true)
-    try {
-      saveUserSettings(user.id, { teachingMethod })
-      setMethodSaved(true)
-      setTimeout(() => setMethodSaved(false), 3000)
-    } finally {
-      setMethodSaving(false)
-    }
+    saveUserSettings(user.id, { teachingMethod })
+      .then(() => {
+        setMethodSaved(true)
+        setTimeout(() => setMethodSaved(false), 3000)
+      })
+      .catch(() => {})
+      .finally(() => setMethodSaving(false))
   }
 
   async function handleCreateAccount() {
     if (!user) return
     if (!accountStudentId) { setAccountError('Selecione um aluno.'); return }
     if (!accountEmail.trim()) { setAccountError('Informe o e-mail.'); return }
-    if (accountPassword.length < 6) { setAccountError('A senha deve ter pelo menos 6 caracteres.'); return }
+    if (accountPassword.length < 8) { setAccountError('A senha deve ter pelo menos 8 caracteres.'); return }
+    if (!/[A-Z]/.test(accountPassword)) { setAccountError('A senha deve conter pelo menos uma letra maiúscula.'); return }
+    if (!/[0-9]/.test(accountPassword)) { setAccountError('A senha deve conter pelo menos um número.'); return }
     setAccountError('')
     setAccountSaving(true)
     try {
@@ -166,7 +178,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error ?? 'Erro ao criar conta.')
 
       if (!student.email) {
-        try { updateStudent(student.id, { email: emailToUse }) } catch { /* noop */ }
+        try { updateStudent(applyStudentUpdate(student, { email: emailToUse })) } catch { /* noop */ }
       }
       setAccountStudentId('')
       setAccountEmail('')
@@ -177,6 +189,30 @@ export default function SettingsPage() {
       setAccountError(err instanceof Error ? err.message : 'Erro ao criar conta.')
     } finally {
       setAccountSaving(false)
+    }
+  }
+
+  async function handleResetPassword() {
+    if (!resetTarget) return
+    if (resetPassword.length < 8) { setResetError('A senha deve ter pelo menos 8 caracteres.'); return }
+    if (!/[A-Z]/.test(resetPassword)) { setResetError('A senha deve conter pelo menos uma letra maiúscula.'); return }
+    if (!/[0-9]/.test(resetPassword)) { setResetError('A senha deve conter pelo menos um número.'); return }
+    setResetError('')
+    setResetSaving(true)
+    try {
+      const res = await fetch('/api/admin/reset-student-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: resetTarget.id, newPassword: resetPassword }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Erro ao alterar senha.')
+      setResetSuccess(true)
+      setTimeout(() => { setResetTarget(null); setResetPassword(''); setResetSuccess(false) }, 2000)
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : 'Erro ao alterar senha.')
+    } finally {
+      setResetSaving(false)
     }
   }
 
@@ -334,28 +370,111 @@ export default function SettingsPage() {
               <div className="space-y-2">
                 {accounts.map((account) => {
                   const linkedStudent = students.find((s) => s.id === account.linkedStudentId)
+                  const isResetting = resetTarget?.id === account.id
                   return (
-                    <div
-                      key={account.id}
-                      className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">
-                          {linkedStudent?.name ?? account.firstName + ' ' + account.lastName}
-                        </p>
-                        <p className="text-xs text-gray-400">{account.email}</p>
+                    <div key={account.id} className="rounded-xl border border-gray-100 bg-gray-50">
+                      {/* Account row */}
+                      <div className="flex items-center justify-between px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">
+                            {linkedStudent?.name ?? account.firstName + ' ' + account.lastName}
+                          </p>
+                          <p className="text-xs text-gray-400">{account.email}</p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => {
+                              if (isResetting) {
+                                setResetTarget(null); setResetPassword(''); setResetError(''); setResetSuccess(false)
+                              } else {
+                                setResetTarget(account); setResetPassword(''); setResetError(''); setResetSuccess(false)
+                              }
+                            }}
+                            className={cn(
+                              'rounded-lg p-1.5 transition-colors',
+                              isResetting
+                                ? 'bg-blue-100 text-blue-600'
+                                : 'text-gray-400 hover:bg-blue-50 hover:text-blue-500'
+                            )}
+                            title="Alterar senha"
+                          >
+                            <KeyRound size={15} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAccount(account.id)}
+                            disabled={deletingAccountId === account.id}
+                            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
+                            title="Excluir conta"
+                          >
+                            {deletingAccountId === account.id
+                              ? <div className="h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+                              : <Trash2 size={15} />
+                            }
+                          </button>
+                        </div>
                       </div>
-                      <button
-                        onClick={() => handleDeleteAccount(account.id)}
-                        disabled={deletingAccountId === account.id}
-                        className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-50"
-                        title="Excluir conta"
-                      >
-                        {deletingAccountId === account.id
-                          ? <div className="h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent" />
-                          : <Trash2 size={15} />
-                        }
-                      </button>
+
+                      {/* Inline reset-password form */}
+                      {isResetting && (
+                        <div className="border-t border-gray-100 px-4 pb-4 pt-3 space-y-3">
+                          <p className="text-xs font-semibold text-gray-700">Definir nova senha</p>
+
+                          {resetSuccess ? (
+                            <div className="flex items-center gap-2 rounded-lg border border-green-100 bg-green-50 px-3 py-2">
+                              <Check size={14} className="text-green-600 flex-shrink-0" />
+                              <p className="text-xs text-green-700">Senha alterada com sucesso!</p>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="relative">
+                                <Input
+                                  label=""
+                                  type={showResetPwd ? 'text' : 'password'}
+                                  placeholder="Mín. 8 caracteres, 1 maiúscula, 1 número"
+                                  value={resetPassword}
+                                  onChange={(e) => setResetPassword(e.target.value)}
+                                  rightElement={
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowResetPwd((v) => !v)}
+                                      className="text-gray-400 hover:text-gray-600"
+                                      aria-label={showResetPwd ? 'Ocultar senha' : 'Mostrar senha'}
+                                    >
+                                      {showResetPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                  }
+                                />
+                              </div>
+
+                              {resetError && (
+                                <div className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+                                  <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-red-500" />
+                                  <p className="text-xs text-red-700">{resetError}</p>
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="primary"
+                                  loading={resetSaving}
+                                  onClick={handleResetPassword}
+                                  className="text-xs py-1.5 px-3 h-auto"
+                                >
+                                  <KeyRound size={13} />
+                                  Salvar nova senha
+                                </Button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setResetTarget(null); setResetPassword(''); setResetError('') }}
+                                  className="text-xs text-gray-400 hover:text-gray-600"
+                                >
+                                  Cancelar
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )
                 })}
@@ -420,9 +539,9 @@ export default function SettingsPage() {
                 </div>
 
                 <Input
-                  label="Senha (mín. 6 caracteres) *"
+                  label="Senha (mín. 8 car., 1 maiúscula, 1 número) *"
                   type="password"
-                  placeholder="••••••"
+                  placeholder="••••••••"
                   value={accountPassword}
                   onChange={(e) => setAccountPassword(e.target.value)}
                 />

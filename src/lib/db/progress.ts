@@ -1,31 +1,55 @@
-// TODO (Supabase): replace localStorage helpers with async Supabase client calls
-
-import { readCollection, upsertItem, removeManyWhere } from './storage'
+import { createClient } from '@/lib/supabase/client'
 import type { StudentProgress, UpsertProgressInput } from './types'
 
-const KEY = 'harmoniq_progress'
-
-function now() {
-  return new Date().toISOString()
-}
-
-export function getProgressByStudent(studentId: string): StudentProgress | null {
-  // TODO (Supabase): SELECT * FROM student_progress WHERE student_id = $1 LIMIT 1
-  return readCollection<StudentProgress>(KEY).find((p) => p.studentId === studentId) ?? null
-}
-
-export function upsertProgress(data: UpsertProgressInput): StudentProgress {
-  // TODO (Supabase): INSERT INTO student_progress (...) VALUES (...) ON CONFLICT (student_id) DO UPDATE SET ... RETURNING *
-  const existing = getProgressByStudent(data.studentId)
-  const record: StudentProgress = {
-    id: existing?.id ?? crypto.randomUUID(),
-    ...data,
-    updatedAt: now(),
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(r: any): StudentProgress {
+  return {
+    id:                      r.id,
+    studentId:               r.student_id,
+    teacherId:               r.teacher_id,
+    evolution:               r.evolution               ?? '',
+    lessonFrequency:         r.lesson_frequency        ?? '',
+    identifiedDifficulties:  r.identified_difficulties ?? [],
+    developedSkills:         r.developed_skills        ?? [],
+    updatedAt:               r.updated_at,
   }
-  return upsertItem<StudentProgress>(KEY, record)
 }
 
-export function deleteProgressByStudent(studentId: string): void {
-  // TODO (Supabase): DELETE FROM student_progress WHERE student_id = $1
-  removeManyWhere<StudentProgress>(KEY, (p) => p.studentId === studentId)
+export async function getProgressByStudent(studentId: string): Promise<StudentProgress | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('student_progress')
+    .select()
+    .eq('student_id', studentId)
+    .maybeSingle()
+  if (error) throw error
+  return data ? fromRow(data) : null
+}
+
+export async function upsertProgress(progress: StudentProgress): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('student_progress').upsert({
+    id:                      progress.id,
+    teacher_id:              progress.teacherId,
+    student_id:              progress.studentId,
+    evolution:               progress.evolution,
+    lesson_frequency:        progress.lessonFrequency,
+    identified_difficulties: progress.identifiedDifficulties,
+    developed_skills:        progress.developedSkills,
+    updated_at:              new Date().toISOString(),
+  }, { onConflict: 'student_id' })
+  if (error) throw error
+}
+
+// ─── Builder ──────────────────────────────────────────────────────────────────
+
+export function buildProgress(
+  data: UpsertProgressInput,
+  existingId?: string,
+): StudentProgress {
+  return {
+    id:        existingId ?? crypto.randomUUID(),
+    ...data,
+    updatedAt: new Date().toISOString(),
+  }
 }

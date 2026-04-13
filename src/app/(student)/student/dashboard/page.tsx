@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import {
   Calendar,
@@ -16,11 +16,12 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStudentById } from '@/lib/db/students'
-import { getLessons, getLessonsByStudent as getLessonsByStudentDb } from '@/lib/db/lessons'
+import { getLessonsByStudent } from '@/lib/db/lessons'
 import { getStudentFiles } from '@/lib/db/studentFiles'
 import { getFinancialByStudent } from '@/lib/db/financial'
 import { getPaymentForStudentMonth, computeStatusForMonth, getDueDateForMonth } from '@/lib/db/payments'
 import { cn } from '@/lib/utils'
+import type { Student, Lesson, StudentFinancial, Payment } from '@/lib/db/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -46,59 +47,74 @@ function formatDuration(minutes: number): string {
   return m > 0 ? `${h}h ${m}min` : `${h}h`
 }
 
+interface BillingInfo {
+  financial: StudentFinancial
+  payment: Payment | null
+  status: string
+  dueDate: string
+  diffDays: number
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StudentDashboardPage() {
   const { user } = useAuth()
   const linkedStudentId = user?.linkedStudentId
 
-  const student = useMemo(
-    () => (linkedStudentId ? getStudentById(linkedStudentId) : null),
-    [linkedStudentId]
-  )
+  const [student, setStudent] = useState<Student | null>(null)
+  const [upcomingLessons, setUpcomingLessons] = useState<Lesson[]>([])
+  const [recentHomework, setRecentHomework] = useState<Lesson[]>([])
+  const [filesCount, setFilesCount] = useState(0)
+  const [billing, setBilling] = useState<BillingInfo | null>(null)
 
   const today = new Date().toISOString().slice(0, 10)
 
-  const upcomingLessons = useMemo(() => {
-    if (!linkedStudentId) return []
-    return getLessons(student?.teacherId ?? '')
-      .filter((l) => l.studentId === linkedStudentId && l.status === 'agendada' && l.date >= today)
-      .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
-  }, [linkedStudentId, student?.teacherId, today])
+  useEffect(() => {
+    if (!linkedStudentId) return
+
+    getStudentById(linkedStudentId).then((s) => {
+      setStudent(s)
+    }).catch(() => {})
+
+    getLessonsByStudent(linkedStudentId).then((lessons) => {
+      const upcoming = lessons
+        .filter((l) => l.status === 'agendada' && l.date >= today)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+      setUpcomingLessons(upcoming)
+
+      const homework = lessons
+        .filter((l) => l.status === 'concluída' && l.homework && l.homework.trim())
+        .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
+        .slice(0, 3)
+      setRecentHomework(homework)
+    }).catch(() => {})
+
+    try {
+      const files = getStudentFiles(linkedStudentId)
+      setFilesCount(files.length)
+    } catch { /* ignore */ }
+
+    const thisMonth = currentYearMonth()
+    Promise.all([
+      getFinancialByStudent(linkedStudentId),
+      getPaymentForStudentMonth(linkedStudentId, thisMonth),
+    ]).then(([financial, payment]) => {
+      if (!financial) return
+      const fin = financial as StudentFinancial
+      const status = computeStatusForMonth(fin, payment, thisMonth)
+      const dueDate = getDueDateForMonth(fin.dueDayOfMonth, thisMonth)
+
+      const todayDate = new Date()
+      todayDate.setHours(0, 0, 0, 0)
+      const dueDateObj = new Date(dueDate + 'T00:00:00')
+      const diffDays = Math.round((dueDateObj.getTime() - todayDate.getTime()) / 86400000)
+
+      setBilling({ financial: fin, payment, status, dueDate, diffDays })
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedStudentId])
 
   const nextLesson = upcomingLessons[0] ?? null
-
-  // Show homework from recent concluded lessons (teacher-assigned)
-  const recentHomework = useMemo(() => {
-    if (!linkedStudentId) return []
-    return getLessonsByStudentDb(linkedStudentId)
-      .filter((l) => l.status === 'concluída' && l.homework && l.homework.trim())
-      .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
-      .slice(0, 3)
-  }, [linkedStudentId])
-
-  const filesCount = useMemo(
-    () => (linkedStudentId ? getStudentFiles(linkedStudentId).length : 0),
-    [linkedStudentId]
-  )
-
-  // ── Billing ────────────────────────────────────────────────────────────────
-  const billing = useMemo(() => {
-    if (!linkedStudentId) return null
-    const financial = getFinancialByStudent(linkedStudentId)
-    if (!financial) return null
-    const thisMonth = currentYearMonth()
-    const payment = getPaymentForStudentMonth(linkedStudentId, thisMonth)
-    const status = computeStatusForMonth(financial, payment, thisMonth)
-    const dueDate = getDueDateForMonth(financial.dueDayOfMonth, thisMonth)
-
-    const todayDate = new Date()
-    todayDate.setHours(0, 0, 0, 0)
-    const dueDateObj = new Date(dueDate + 'T00:00:00')
-    const diffDays = Math.round((dueDateObj.getTime() - todayDate.getTime()) / 86400000)
-
-    return { financial, payment, status, dueDate, diffDays }
-  }, [linkedStudentId])
 
   if (!student) {
     return (

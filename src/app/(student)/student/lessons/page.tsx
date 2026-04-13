@@ -1,12 +1,12 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { Calendar, Clock, Music, Video, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStudentById } from '@/lib/db/students'
-import { getLessons } from '@/lib/db/lessons'
+import { getLessonsByStudent } from '@/lib/db/lessons'
 import { cn } from '@/lib/utils'
-import type { LessonStatus } from '@/lib/db/types'
+import type { Lesson, LessonStatus, Student } from '@/lib/db/types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,23 +35,23 @@ const STATUS_CONFIG: Record<LessonStatus, { label: string; icon: React.ElementTy
 export default function StudentLessonsPage() {
   const { user } = useAuth()
   const linkedStudentId = user?.linkedStudentId
+  const [student, setStudent] = useState<Student | null>(null)
+  const [lessons, setLessons] = useState<Lesson[]>([])
 
-  const student = useMemo(
-    () => (linkedStudentId ? getStudentById(linkedStudentId) : null),
-    [linkedStudentId]
-  )
-
-  const lessons = useMemo(() => {
-    if (!linkedStudentId || !student) return []
-    return getLessons(student.teacherId)
-      .filter((l) => l.studentId === linkedStudentId)
-      .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
-  }, [linkedStudentId, student])
+  useEffect(() => {
+    if (!linkedStudentId) return
+    getStudentById(linkedStudentId).then(setStudent).catch(() => {})
+    getLessonsByStudent(linkedStudentId)
+      .then((data) => setLessons(
+        data.sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time))
+      ))
+      .catch(() => {})
+  }, [linkedStudentId])
 
   const upcoming = lessons.filter((l) => l.status === 'agendada')
   const past = lessons.filter((l) => l.status !== 'agendada')
 
-  function LessonCard({ lesson }: { lesson: (typeof lessons)[0] }) {
+  function LessonCard({ lesson }: { lesson: Lesson }) {
     const cfg = STATUS_CONFIG[lesson.status]
     const Icon = cfg.icon
     return (

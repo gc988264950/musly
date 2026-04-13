@@ -24,7 +24,6 @@ import { useSearchParams } from 'next/navigation'
 import { Check, Crown, Zap, Star, ExternalLink, X, Loader2, AlertCircle } from 'lucide-react'
 import { useSubscription } from '@/contexts/SubscriptionContext'
 import { useAuth } from '@/contexts/AuthContext'
-import { setSubscription } from '@/lib/db/subscriptions'
 import { PLANS } from '@/lib/plans'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
@@ -129,15 +128,7 @@ function PlansContent() {
         const act  = body?.activation
 
         if (act?.planId) {
-          // Apply activation from webhook
-          setSubscription(user.id, act.planId, {
-            status:             'active',
-            startedAt:          act.activatedAt,
-            expiresAt:          act.expiresAt,
-            billingProvider:    'cakto',
-            caktoOrderId:       act.caktoOrderId,
-            caktoCustomerEmail: act.email,
-          })
+          // Activation already written to Supabase by the webhook. Just refresh.
           refresh()
           setChecking(false)
           const resolvedPlan = act.planId as PlanId

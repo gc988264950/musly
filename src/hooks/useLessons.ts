@@ -5,28 +5,29 @@ import { useAuth } from '@/contexts/AuthContext'
 import * as db from '@/lib/db/lessons'
 import type { Lesson, CreateLessonInput, UpdateLessonInput } from '@/lib/db/types'
 
-/**
- * Manages lesson data for the current teacher.
- *
- * Backed by localStorage now; swap the `db.*` calls inside this hook
- * for async Supabase queries when integrating the backend.
- */
 export function useLessons() {
   const { user } = useAuth()
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [loading, setLoading] = useState(true)
 
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (!user) return
-    setLessons(db.getLessons(user.id))
-    setLoading(false)
+    setLoading(true)
+    try {
+      const data = await db.getLessons(user.id)
+      setLessons(data)
+    } catch (err) {
+      console.error('[useLessons] load error:', err)
+    } finally {
+      setLoading(false)
+    }
   }, [user])
 
   useEffect(() => {
     load()
   }, [load])
 
-  // ── Derived views (computed from state — no extra queries needed) ──────────
+  // ── Derived views ──────────────────────────────────────────────────────────
 
   const todayLessons = lessons
     .filter((l) => l.date === db.todayISO())
@@ -48,23 +49,41 @@ export function useLessons() {
   const create = useCallback(
     (data: Omit<CreateLessonInput, 'teacherId'>): Lesson => {
       if (!user) throw new Error('Usuário não autenticado.')
-      const lesson = db.createLesson({ ...data, teacherId: user.id })
+      const lesson = db.buildLesson({ ...data, teacherId: user.id })
       setLessons((prev) => [...prev, lesson])
+      db.createLesson(lesson).catch(() => load())
       return lesson
     },
-    [user]
+    [user, load]
   )
 
-  const update = useCallback((id: string, data: UpdateLessonInput): Lesson => {
-    const lesson = db.updateLesson(id, data)
-    setLessons((prev) => prev.map((l) => (l.id === id ? lesson : l)))
-    return lesson
-  }, [])
+  const createMany = useCallback(
+    (lessonList: Lesson[]): void => {
+      setLessons((prev) => [...prev, ...lessonList])
+      Promise.all(lessonList.map((l) => db.createLesson(l))).catch(() => load())
+    },
+    [load]
+  )
 
-  const remove = useCallback((id: string): void => {
-    db.deleteLesson(id)
-    setLessons((prev) => prev.filter((l) => l.id !== id))
-  }, [])
+  const update = useCallback(
+    (id: string, data: UpdateLessonInput): Lesson => {
+      const existing = lessons.find((l) => l.id === id)
+      if (!existing) throw new Error('Aula não encontrada.')
+      const updated = db.applyUpdate(existing, data)
+      setLessons((prev) => prev.map((l) => (l.id === id ? updated : l)))
+      db.updateLesson(updated).catch(() => load())
+      return updated
+    },
+    [lessons, load]
+  )
+
+  const remove = useCallback(
+    (id: string): void => {
+      setLessons((prev) => prev.filter((l) => l.id !== id))
+      db.deleteLesson(id).catch(() => load())
+    },
+    [load]
+  )
 
   return {
     lessons,
@@ -74,6 +93,7 @@ export function useLessons() {
     thisWeekLessons,
     upcomingLessons,
     create,
+    createMany,
     update,
     remove,
   }

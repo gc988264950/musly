@@ -1,114 +1,184 @@
-// TODO (Supabase): replace localStorage helpers with async Supabase client calls
+import { createClient } from '@/lib/supabase/client'
+import type { LessonPlan, CreateLessonPlanInput, UpdateLessonPlanInput, LessonPlanSection } from './types'
 
-import { readCollection, upsertItem, removeItem, removeManyWhere } from './storage'
-import type { LessonPlan, CreateLessonPlanInput, UpdateLessonPlanInput } from './types'
-
-const KEY = 'harmoniq_lesson_plans'
-
-function now() {
-  return new Date().toISOString()
-}
-
-function normalize(p: LessonPlan): LessonPlan {
-  const raw = p as unknown as Record<string, unknown>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(r: any): LessonPlan {
   return {
-    ...p,
-    lessonId: typeof raw.lessonId === 'string' ? raw.lessonId : '',
-    planObjective: typeof raw.planObjective === 'string' ? raw.planObjective : '',
-    planContent: typeof raw.planContent === 'string' ? raw.planContent : '',
-    planExercises: typeof raw.planExercises === 'string' ? raw.planExercises : '',
-    planObservations: typeof raw.planObservations === 'string' ? raw.planObservations : '',
-    planPending: typeof raw.planPending === 'string' ? raw.planPending : '',
-    planNextLesson: typeof raw.planNextLesson === 'string' ? raw.planNextLesson : '',
+    id:                  r.id,
+    studentId:           r.student_id,
+    teacherId:           r.teacher_id,
+    lessonId:            r.lesson_id            ?? '',
+    duration:            r.duration             ?? 60,
+    focus:               r.focus                ?? 'misto',
+    level:               r.level                ?? 'Iniciante',
+    difficulties:        r.difficulties         ?? [],
+    objectives:          r.objectives           ?? '',
+    teacherObservation:  r.teacher_observation  ?? '',
+    title:               r.title                ?? '',
+    summary:             r.summary              ?? '',
+    sections:            (r.sections as LessonPlanSection[]) ?? [],
+    planObjective:       r.plan_objective        ?? '',
+    planContent:         r.plan_content          ?? '',
+    planExercises:       r.plan_exercises        ?? '',
+    planObservations:    r.plan_observations     ?? '',
+    planPending:         r.plan_pending          ?? '',
+    planNextLesson:      r.plan_next_lesson      ?? '',
+    createdAt:           r.created_at,
+    updatedAt:           r.updated_at,
   }
 }
 
-export function getLessonPlansByStudent(studentId: string): LessonPlan[] {
-  // TODO (Supabase): SELECT * FROM lesson_plans WHERE student_id = $1 ORDER BY created_at DESC
-  return readCollection<LessonPlan>(KEY)
-    .filter((p) => p.studentId === studentId)
-    .map(normalize)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+export async function getLessonPlansByStudent(studentId: string): Promise<LessonPlan[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('lesson_plans')
+    .select()
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []).map(fromRow)
 }
 
-export function getLessonPlanByLessonId(lessonId: string): LessonPlan | null {
-  // TODO (Supabase): SELECT * FROM lesson_plans WHERE lesson_id = $1 LIMIT 1
-  const found = readCollection<LessonPlan>(KEY).find((p) => normalize(p).lessonId === lessonId)
-  return found ? normalize(found) : null
+export async function getLessonPlanByLessonId(lessonId: string): Promise<LessonPlan | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('lesson_plans')
+    .select()
+    .eq('lesson_id', lessonId)
+    .maybeSingle()
+  if (error) throw error
+  return data ? fromRow(data) : null
 }
 
-export function getOrCreateLessonPlan(data: {
+export async function getLessonPlanById(id: string): Promise<LessonPlan | null> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('lesson_plans')
+    .select()
+    .eq('id', id)
+    .single()
+  if (error) return null
+  return fromRow(data)
+}
+
+export async function createLessonPlan(plan: LessonPlan): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('lesson_plans').insert({
+    id:                   plan.id,
+    teacher_id:           plan.teacherId,
+    student_id:           plan.studentId,
+    lesson_id:            plan.lessonId,
+    duration:             plan.duration,
+    focus:                plan.focus,
+    level:                plan.level,
+    difficulties:         plan.difficulties,
+    objectives:           plan.objectives,
+    teacher_observation:  plan.teacherObservation,
+    title:                plan.title,
+    summary:              plan.summary,
+    sections:             plan.sections,
+    plan_objective:       plan.planObjective,
+    plan_content:         plan.planContent,
+    plan_exercises:       plan.planExercises,
+    plan_observations:    plan.planObservations,
+    plan_pending:         plan.planPending,
+    plan_next_lesson:     plan.planNextLesson,
+    created_at:           plan.createdAt,
+    updated_at:           plan.updatedAt,
+  })
+  if (error) throw error
+}
+
+export async function updateLessonPlan(plan: LessonPlan): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase
+    .from('lesson_plans')
+    .update({
+      lesson_id:           plan.lessonId,
+      duration:            plan.duration,
+      focus:               plan.focus,
+      level:               plan.level,
+      difficulties:        plan.difficulties,
+      objectives:          plan.objectives,
+      teacher_observation: plan.teacherObservation,
+      title:               plan.title,
+      summary:             plan.summary,
+      sections:            plan.sections,
+      plan_objective:      plan.planObjective,
+      plan_content:        plan.planContent,
+      plan_exercises:      plan.planExercises,
+      plan_observations:   plan.planObservations,
+      plan_pending:        plan.planPending,
+      plan_next_lesson:    plan.planNextLesson,
+      updated_at:          new Date().toISOString(),
+    })
+    .eq('id', plan.id)
+  if (error) throw error
+}
+
+export async function deleteLessonPlan(id: string): Promise<void> {
+  const supabase = createClient()
+  const { error } = await supabase.from('lesson_plans').delete().eq('id', id)
+  if (error) throw error
+}
+
+// ─── Builders ─────────────────────────────────────────────────────────────────
+
+export function buildLessonPlan(
+  data: CreateLessonPlanInput,
+  id = crypto.randomUUID(),
+): LessonPlan {
+  const now = new Date().toISOString()
+  return {
+    lessonId:         '',
+    planObjective:    '',
+    planContent:      '',
+    planExercises:    '',
+    planObservations: '',
+    planPending:      '',
+    planNextLesson:   '',
+    ...data,
+    id,
+    createdAt: now,
+    updatedAt: now,
+  }
+}
+
+export function applyUpdate(existing: LessonPlan, data: UpdateLessonPlanInput): LessonPlan {
+  return { ...existing, ...data, updatedAt: new Date().toISOString() }
+}
+
+export async function getAllLessonPlansByTeacher(teacherId: string): Promise<LessonPlan[]> {
+  const supabase = createClient()
+  const { data, error } = await supabase
+    .from('lesson_plans')
+    .select()
+    .eq('teacher_id', teacherId)
+  if (error) throw error
+  return (data ?? []).map(fromRow)
+}
+
+export async function getOrCreateLessonPlan(params: {
   lessonId: string
   studentId: string
   teacherId: string
-}): LessonPlan {
-  const existing = getLessonPlanByLessonId(data.lessonId)
+}): Promise<LessonPlan> {
+  const existing = await getLessonPlanByLessonId(params.lessonId)
   if (existing) return existing
-  return createLessonPlan({
-    lessonId: data.lessonId,
-    studentId: data.studentId,
-    teacherId: data.teacherId,
-    duration: 60,
-    focus: 'misto',
-    level: 'Iniciante',
-    difficulties: [],
-    objectives: '',
+  const plan = buildLessonPlan({
+    lessonId:           params.lessonId,
+    studentId:          params.studentId,
+    teacherId:          params.teacherId,
+    duration:           60,
+    focus:              'misto',
+    level:              'Iniciante',
+    difficulties:       [],
+    objectives:         '',
     teacherObservation: '',
-    title: 'Planejamento de aula',
-    summary: '',
-    sections: [],
-    planObjective: '',
-    planContent: '',
-    planExercises: '',
-    planObservations: '',
-    planPending: '',
-    planNextLesson: '',
+    title:              'Planejamento de aula',
+    summary:            '',
+    sections:           [],
   })
-}
-
-export function getLessonPlanById(id: string): LessonPlan | null {
-  // TODO (Supabase): SELECT * FROM lesson_plans WHERE id = $1 LIMIT 1
-  const found = readCollection<LessonPlan>(KEY).find((p) => p.id === id)
-  return found ? normalize(found) : null
-}
-
-export function createLessonPlan(data: CreateLessonPlanInput): LessonPlan {
-  // TODO (Supabase): INSERT INTO lesson_plans (...) VALUES (...) RETURNING *
-  const plan: LessonPlan = {
-    lessonId: '',
-    planObjective: '',
-    planContent: '',
-    planExercises: '',
-    planObservations: '',
-    planPending: '',
-    planNextLesson: '',
-    ...data,
-    id: crypto.randomUUID(),
-    createdAt: now(),
-    updatedAt: now(),
-  }
-  return upsertItem<LessonPlan>(KEY, plan)
-}
-
-export function updateLessonPlan(id: string, data: UpdateLessonPlanInput): LessonPlan {
-  // TODO (Supabase): UPDATE lesson_plans SET ... WHERE id = $1 RETURNING *
-  const existing = readCollection<LessonPlan>(KEY).find((p) => p.id === id)
-  if (!existing) throw new Error('Plano não encontrado.')
-  const updated: LessonPlan = { ...existing, ...data, updatedAt: now() }
-  return upsertItem<LessonPlan>(KEY, updated)
-}
-
-export function deleteLessonPlan(id: string): void {
-  // TODO (Supabase): DELETE FROM lesson_plans WHERE id = $1
-  removeItem<LessonPlan>(KEY, id)
-}
-
-export function deleteLessonPlansByStudent(studentId: string): void {
-  // TODO (Supabase): DELETE FROM lesson_plans WHERE student_id = $1
-  removeManyWhere<LessonPlan>(KEY, (p) => p.studentId === studentId)
-}
-
-export function getAllLessonPlansByTeacher(teacherId: string): LessonPlan[] {
-  // TODO (Supabase): SELECT * FROM lesson_plans WHERE teacher_id = $1
-  return readCollection<LessonPlan>(KEY).filter((p) => p.teacherId === teacherId)
+  await createLessonPlan(plan)
+  return plan
 }

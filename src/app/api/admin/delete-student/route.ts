@@ -13,7 +13,7 @@ export async function DELETE(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'professor') {
+  if (!user || user.user_metadata?.role === 'aluno') {
     return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
   }
 

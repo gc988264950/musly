@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Sparkles, Send, RefreshCw, User, Trash2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getLessons, todayISO } from '@/lib/db/lessons'
@@ -8,23 +8,17 @@ import { getStudents } from '@/lib/db/students'
 import { getAllPayments } from '@/lib/db/payments'
 import { getAllFinancial } from '@/lib/db/financial'
 import { cn } from '@/lib/utils'
+import type { Lesson, Student, Payment, StudentFinancial } from '@/lib/db/types'
 
-// ─── Context builder ──────────────────────────────────────────────────────────
+// ─── Context ──────────────────────────────────────────────────────────────────
 
 interface SystemContext {
-  lessons: ReturnType<typeof getLessons>
-  students: ReturnType<typeof getStudents>
+  lessons: Lesson[]
+  students: Student[]
+  payments: Payment[]
+  financials: StudentFinancial[]
   teacherId: string
   today: string
-}
-
-function buildSystemContext(teacherId: string): SystemContext {
-  return {
-    lessons: getLessons(teacherId),
-    students: getStudents(teacherId),
-    teacherId,
-    today: todayISO(),
-  }
 }
 
 // ─── AI response engine ───────────────────────────────────────────────────────
@@ -86,8 +80,8 @@ function generateAIResponse(prompt: string, ctx: SystemContext): string {
   // ── Pagamentos pendentes ──────────────────────────────────────────────────
   if (p.includes('pagamento') || p.includes('pendente') || p.includes('mensalidade') || p.includes('financeiro')) {
     try {
-      const payments = getAllPayments(ctx.teacherId)
-      const financials = getAllFinancial(ctx.teacherId)
+      const payments = ctx.payments
+      const financials = ctx.financials
       const thisMonth = new Date().toISOString().slice(0, 7)
       const paidThisMonth = payments.filter((p) => p.referenceMonth === thisMonth && p.paidAt !== null)
       const withFinancial = financials.length
@@ -200,13 +194,21 @@ export default function AIAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [ctx, setCtx] = useState<SystemContext | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
-  const ctx = useMemo(
-    () => (user ? buildSystemContext(user.id) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [user?.id]
-  )
+  useEffect(() => {
+    if (!user) return
+    const teacherId = user.id
+    Promise.all([
+      getLessons(teacherId).catch(() => [] as Lesson[]),
+      getStudents(teacherId).catch(() => [] as Student[]),
+      getAllPayments(teacherId).catch(() => [] as Payment[]),
+      getAllFinancial(teacherId).catch(() => [] as StudentFinancial[]),
+    ]).then(([lessons, students, payments, financials]) => {
+      setCtx({ lessons, students, payments, financials, teacherId, today: todayISO() })
+    })
+  }, [user?.id])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })

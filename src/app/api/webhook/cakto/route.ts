@@ -25,14 +25,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import {
-  activationStore,
   computeExpiry,
   CAKTO_OFFER_TO_PLAN,
   CAKTO_CONFIG,
   type CaktoWebhookPayload,
-  type PendingActivation,
 } from '@/lib/billing/cakto'
+
+function adminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+}
 
 // ─── Debug bypass (controlled by env var — off by default) ───────────────────
 const DEBUG_BYPASS = process.env.CAKTO_WEBHOOK_DEBUG_BYPASS === 'true'
@@ -131,7 +137,7 @@ function validateRequest(
 
 // ─── Approved-event handler ───────────────────────────────────────────────────
 
-function handleApproved(payload: CaktoWebhookPayload): NextResponse {
+async function handleApproved(payload: CaktoWebhookPayload): Promise<NextResponse> {
   const { id, customer, offer, external_reference, approved_at, created_at } = payload.data
 
   const email = customer?.email?.toLowerCase().trim()
@@ -140,43 +146,71 @@ function handleApproved(payload: CaktoWebhookPayload): NextResponse {
     return NextResponse.json({ ok: true, skipped: 'no_email' })
   }
 
-  // Resolve plan from offer ID
   const offerId = offer?.id ?? ''
   const planId  = CAKTO_OFFER_TO_PLAN[offerId]
 
   if (!planId) {
-    console.warn(
-      `[Cakto webhook] Unknown offer ID "${offerId}" — add it to CAKTO_OFFER_TO_PLAN in src/lib/billing/cakto.ts`
-    )
+    console.warn(`[Cakto webhook] Unknown offer ID "${offerId}"`)
     return NextResponse.json({ ok: true, skipped: 'unknown_offer', offerId })
   }
 
   const activatedAt = approved_at ?? created_at ?? new Date().toISOString()
   const expiresAt   = computeExpiry(planId, new Date(activatedAt))
+  const admin       = adminClient()
 
-  const activation: PendingActivation = {
-    email,
-    userId:       external_reference ?? null,
-    planId,
-    caktoOrderId: id,
-    activatedAt,
-    expiresAt,
+  // Try to find the Supabase user by external_reference (userId) or email
+  let userId = external_reference ?? null
+
+  if (!userId) {
+    const { data } = await admin.auth.admin.listUsers({ perPage: 1000 })
+    const match = data?.users?.find((u) => u.email?.toLowerCase() === email)
+    userId = match?.id ?? null
   }
 
-  // ⚠️ TODO (Supabase): write to DB table instead of in-memory Map
-  activationStore.set(email, activation)
+  if (!userId) {
+    console.warn(`[Cakto webhook] No Supabase user found for ${email} — cannot write subscription.`)
+    return NextResponse.json({ ok: true, skipped: 'user_not_found', email })
+  }
 
-  console.info(`[Cakto webhook] ✅ Plan "${planId}" activated for ${email} (order ${id})`)
+  const { error } = await admin.from('subscriptions').upsert({
+    user_id:              userId,
+    plan_id:              planId,
+    status:               'active',
+    started_at:           activatedAt,
+    expires_at:           expiresAt,
+    billing_provider:     'cakto',
+    cakto_order_id:       id,
+    cakto_customer_email: email,
+    updated_at:           new Date().toISOString(),
+  }, { onConflict: 'user_id' })
+
+  if (error) {
+    console.error('[Cakto webhook] DB write error:', error.message)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  console.info(`[Cakto webhook] ✅ Plan "${planId}" written to DB for ${email} (order ${id})`)
   return NextResponse.json({ ok: true, planId, email })
 }
 
 // ─── Refund/chargeback handler ────────────────────────────────────────────────
 
-function handleRefund(payload: CaktoWebhookPayload): NextResponse {
+async function handleRefund(payload: CaktoWebhookPayload): Promise<NextResponse> {
   const email = payload.data.customer?.email?.toLowerCase().trim()
-  if (email) activationStore.delete(email)
-  // TODO (Supabase): UPDATE subscriptions SET plan_id='free', status='cancelled'
-  console.info(`[Cakto webhook] Refund received for ${email ?? 'unknown'} — order ${payload.data.id}`)
+  if (email) {
+    const admin = adminClient()
+    const { data } = await admin.auth.admin.listUsers({ perPage: 1000 })
+    const match = data?.users?.find((u) => u.email?.toLowerCase() === email)
+    if (match) {
+      await admin.from('subscriptions').upsert({
+        user_id:    match.id,
+        plan_id:    'free',
+        status:     'cancelled',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' })
+    }
+  }
+  console.info(`[Cakto webhook] Refund processed for ${email ?? 'unknown'} — order ${payload.data.id}`)
   return NextResponse.json({ ok: true, event: payload.event })
 }
 

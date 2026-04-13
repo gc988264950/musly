@@ -1,33 +1,26 @@
 /**
  * GET /api/subscription/activate?email=professor@email.com
  *
- * Checks whether a Cakto payment activation is pending for the given email.
+ * Checks whether a Cakto payment has been recorded for the given email.
  * Called by the frontend (SubscriptionContext) on page load and after
  * returning from the Cakto checkout.
  *
  * ─── FLOW ────────────────────────────────────────────────────────────────────
- * 1. Webhook fires → activationStore.set(email, activation)
+ * 1. Webhook fires → writes to subscriptions table in Supabase
  * 2. Frontend loads → SubscriptionContext calls this endpoint
- * 3. If activation found → returns plan details + removes from store (one-time)
- * 4. Frontend calls setSubscription(userId, planId, options) → updates localStorage
- *
- * ─── TODO (Supabase) ─────────────────────────────────────────────────────────
- * Replace activationStore logic with:
- *   const { data } = await supabase
- *     .from('cakto_activations')
- *     .select('*')
- *     .eq('email', email)
- *     .order('activated_at', { ascending: false })
- *     .limit(1)
- *     .single()
- *   if (data) {
- *     await supabase.from('cakto_activations').delete().eq('id', data.id)
- *     return NextResponse.json(data)
- *   }
+ * 3. If an active non-free subscription exists → returns plan details
+ * 4. Frontend calls refresh() to reload plan from DB
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { activationStore } from '@/lib/billing/cakto'
+import { createClient } from '@supabase/supabase-js'
+
+function adminClient() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+}
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const email = req.nextUrl.searchParams.get('email')?.toLowerCase().trim()
@@ -36,15 +29,37 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'email param required' }, { status: 400 })
   }
 
-  // ⚠️  TODO (Supabase): read from DB instead of in-memory Map
-  const activation = activationStore.get(email)
+  const admin = adminClient()
 
-  if (!activation) {
+  // Look up the Supabase user by email
+  const { data: usersData } = await admin.auth.admin.listUsers({ perPage: 1000 })
+  const user = usersData?.users?.find((u) => u.email?.toLowerCase() === email)
+
+  if (!user) {
     return NextResponse.json({ activation: null })
   }
 
-  // Consume activation — prevents the same webhook event being applied twice
-  activationStore.delete(email)
+  // Check for an active paid subscription
+  const { data: sub } = await admin
+    .from('subscriptions')
+    .select('plan_id, status, started_at, expires_at')
+    .eq('user_id', user.id)
+    .in('status', ['active', 'trialing'])
+    .neq('plan_id', 'free')
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .single()
 
-  return NextResponse.json({ activation })
+  if (!sub) {
+    return NextResponse.json({ activation: null })
+  }
+
+  return NextResponse.json({
+    activation: {
+      planId:    sub.plan_id,
+      status:    sub.status,
+      startedAt: sub.started_at,
+      expiresAt: sub.expires_at,
+    },
+  })
 }

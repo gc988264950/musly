@@ -104,7 +104,7 @@ export default function LoginForm() {
           }
         />
         <div className="mt-2 flex justify-end">
-          <Link href="#" className="text-xs text-blue-600 transition-colors hover:text-[#1468d6]">
+          <Link href="/forgot-password" className="text-xs text-blue-600 transition-colors hover:text-[#1468d6]">
             Esqueceu a senha?
           </Link>
         </div>

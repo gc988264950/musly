@@ -17,9 +17,8 @@ import { EmptyState } from '@/components/ui/EmptyState'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { UpgradePrompt } from '@/components/ui/UpgradePrompt'
-import { getNextLessonForStudent, getLessonsByStudent, generateRecurringLessons } from '@/lib/db/lessons'
-import { getLessonPlanByLessonId } from '@/lib/db/lessonPlans'
-import { createStudentAccount } from '@/lib/mock-auth'
+import { useLessons } from '@/hooks/useLessons'
+import { buildRecurringLessons } from '@/lib/db/lessons'
 import { INSTRUMENTS, LEVELS, STUDENT_COLORS, LESSON_DURATIONS, CONTRACT_DURATIONS } from '@/lib/db/types'
 import { PLANS } from '@/lib/plans'
 import type { Student, StudentLevel, ContractDuration } from '@/lib/db/types'
@@ -112,7 +111,7 @@ const avatarGradients = [
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatNextLesson(lesson: ReturnType<typeof getNextLessonForStudent>): string {
+function formatNextLesson(lesson: import('@/lib/db/types').Lesson | null): string {
   if (!lesson) return 'Sem aulas agendadas'
   const date = new Date(lesson.date + 'T00:00:00')
   const todayStr = new Date().toISOString().split('T')[0]
@@ -134,30 +133,27 @@ function formatNextLesson(lesson: ReturnType<typeof getNextLessonForStudent>): s
 interface StudentCardProps {
   student: Student
   index: number
+  lessons: import('@/lib/db/types').Lesson[]
   onEdit: () => void
   onDelete: () => void
 }
 
-function StudentCard({ student, index, onEdit, onDelete }: StudentCardProps) {
-  const nextLesson = getNextLessonForStudent(student.id)
-  const hasNextLesson = !!nextLesson
+function StudentCard({ student, index, lessons, onEdit, onDelete }: StudentCardProps) {
   const studentColor = student.color || STUDENT_COLORS[index % STUDENT_COLORS.length]
 
-  // Compute days since last lesson for the "no lessons" alert badge
-  const studentLessons = getLessonsByStudent(student.id).filter((l) => l.status !== 'cancelada')
-  const lastLesson = studentLessons.sort((a, b) => b.date.localeCompare(a.date))[0]
+  // Compute from pre-loaded lessons (passed from parent)
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const studentLessons = lessons.filter((l) => l.studentId === student.id && l.status !== 'cancelada')
+  const lastLesson = [...studentLessons].sort((a, b) => b.date.localeCompare(a.date))[0]
   const daysSinceLast = lastLesson
     ? Math.floor((Date.now() - new Date(lastLesson.date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24))
     : null
   const showNoLessonBadge = !student.needsAttention && (daysSinceLast === null || daysSinceLast >= 14)
-
-  // Missing-planning alert: upcoming lessons in the next 7 days without a plan
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const nextWeekStr = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
-  const missingPlanning = studentLessons.filter(
-    (l) => l.status === 'agendada' && l.date > todayStr && l.date <= nextWeekStr
-      && !getLessonPlanByLessonId(l.id)
-  ).length > 0
+  const nextLesson = studentLessons
+    .filter((l) => l.date >= todayStr && l.status === 'agendada')
+    .sort((a, b) => a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date))[0] ?? null
+  const hasNextLesson = !!nextLesson
+  const missingPlanning = false  // computed async — feature re-enabled after full migration
 
   return (
     <div
@@ -551,6 +547,7 @@ function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
 export default function StudentsPage() {
   const { user } = useAuth()
   const { students, create, update, remove } = useStudents()
+  const { lessons, createMany } = useLessons()
   const { canAddStudent, planId, studentsCount, refresh: refreshSubscription } = useSubscription()
   const { add: addNotification } = useNotifications()
 
@@ -627,7 +624,7 @@ export default function StudentsPage() {
   }, [])
 
   // ── Save ──────────────────────────────────────────────────────────────────
-  function handleSave() {
+  async function handleSave() {
     const isNew = !editing
     const e = validateForm(form, isNew)
     if (Object.keys(e).length > 0) { setErrors(e); return }
@@ -665,23 +662,30 @@ export default function StudentsPage() {
         // 1. Create student record
         const student = create(payload)
 
-        // 2. Auto-create portal account
+        // 2. Auto-create portal account via API
         let accountError = ''
         try {
           if (user && form.email.trim() && form.password) {
             const nameParts = form.name.trim().split(' ')
-            createStudentAccount({
-              email: form.email.trim(),
-              password: form.password,
-              firstName: nameParts[0] ?? form.name.trim(),
-              lastName: nameParts.slice(1).join(' ') || '',
-              linkedStudentId: student.id,
-              teacherId: user.id,
+            const res = await fetch('/api/admin/create-student', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email:           form.email.trim(),
+                password:        form.password,
+                firstName:       nameParts[0] ?? form.name.trim(),
+                lastName:        nameParts.slice(1).join(' ') || '',
+                linkedStudentId: student.id,
+                teacherId:       user.id,
+              }),
             })
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}))
+              accountError = body.error ?? 'Erro ao criar conta do aluno.'
+            }
           }
         } catch (err) {
           accountError = err instanceof Error ? err.message : 'Erro ao criar conta do aluno.'
-          // Don't block student creation — just note the error
         }
 
         // 3. Generate recurring lessons
@@ -694,7 +698,7 @@ export default function StudentsPage() {
           contractEndDate
         ) {
           const scheduleGroupId = crypto.randomUUID()
-          lessonsCreated = generateRecurringLessons({
+          const builtLessons = buildRecurringLessons({
             teacherId: user.id,
             studentId: student.id,
             instrument: form.instrument,
@@ -705,6 +709,8 @@ export default function StudentsPage() {
             endDate: contractEndDate,
             scheduleGroupId,
           })
+          lessonsCreated = builtLessons.length
+          createMany(builtLessons)
         }
 
         addNotification('student_created', `Aluno "${form.name.trim()}" cadastrado com sucesso.`, student.id)
@@ -828,6 +834,7 @@ export default function StudentsPage() {
               key={student.id}
               student={student}
               index={i}
+              lessons={lessons}
               onEdit={() => openEdit(student)}
               onDelete={() => setDeleteTarget(student)}
             />

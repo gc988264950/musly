@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { Menu, AlertTriangle } from 'lucide-react'
 import StudentSidebar from '@/components/layout/StudentSidebar'
 import { useAuth } from '@/contexts/AuthContext'
 import { getFinancialByStudent } from '@/lib/db/financial'
 import { getPaymentForStudentMonth, computeStatusForMonth, getDueDateForMonth } from '@/lib/db/payments'
 import { cn } from '@/lib/utils'
+import type { StudentFinancial } from '@/lib/db/types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -15,52 +16,56 @@ function currentYearMonth(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
+interface BillingAlert {
+  message: string
+  variant: 'red' | 'orange' | 'yellow'
+}
+
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = useState(false)
   const { user } = useAuth()
+  const [billingAlert, setBillingAlert] = useState<BillingAlert | null>(null)
 
-  // ── Billing alert ─────────────────────────────────────────────────────────
-  const billingAlert = useMemo(() => {
+  useEffect(() => {
     const linkedStudentId = user?.linkedStudentId
-    if (!linkedStudentId) return null
-
-    const financial = getFinancialByStudent(linkedStudentId)
-    if (!financial) return null
+    if (!linkedStudentId) return
 
     const thisMonth = currentYearMonth()
-    const payment = getPaymentForStudentMonth(linkedStudentId, thisMonth)
-    const status = computeStatusForMonth(financial, payment, thisMonth)
 
-    if (status === 'pago') return null
+    Promise.all([
+      getFinancialByStudent(linkedStudentId),
+      getPaymentForStudentMonth(linkedStudentId, thisMonth),
+    ]).then(([financial, payment]) => {
+      if (!financial) return
 
-    const dueDate = getDueDateForMonth(financial.dueDayOfMonth, thisMonth)
-    const todayDate = new Date()
-    todayDate.setHours(0, 0, 0, 0)
-    const dueDateObj = new Date(dueDate + 'T00:00:00')
-    const diffDays = Math.round((dueDateObj.getTime() - todayDate.getTime()) / 86400000)
+      const status = computeStatusForMonth(financial as StudentFinancial, payment, thisMonth)
+      if (status === 'pago') { setBillingAlert(null); return }
 
-    if (status === 'atrasado') {
-      const late = Math.abs(diffDays)
-      return {
-        message: `Sua mensalidade está em atraso há ${late} dia${late !== 1 ? 's' : ''}. Regularize o pagamento.`,
-        variant: 'red' as const,
+      const dueDate = getDueDateForMonth((financial as StudentFinancial).dueDayOfMonth, thisMonth)
+      const todayDate = new Date()
+      todayDate.setHours(0, 0, 0, 0)
+      const dueDateObj = new Date(dueDate + 'T00:00:00')
+      const diffDays = Math.round((dueDateObj.getTime() - todayDate.getTime()) / 86400000)
+
+      if (status === 'atrasado') {
+        const late = Math.abs(diffDays)
+        setBillingAlert({
+          message: `Sua mensalidade está em atraso há ${late} dia${late !== 1 ? 's' : ''}. Regularize o pagamento.`,
+          variant: 'red',
+        })
+      } else if (diffDays === 0) {
+        setBillingAlert({ message: 'Sua mensalidade vence hoje.', variant: 'orange' })
+      } else if (diffDays <= 3) {
+        setBillingAlert({
+          message: `Sua mensalidade está próxima do vencimento — faltam ${diffDays} dia${diffDays !== 1 ? 's' : ''}.`,
+          variant: 'yellow',
+        })
+      } else {
+        setBillingAlert(null)
       }
-    }
-    if (diffDays === 0) {
-      return {
-        message: 'Sua mensalidade vence hoje.',
-        variant: 'orange' as const,
-      }
-    }
-    if (diffDays <= 3) {
-      return {
-        message: `Sua mensalidade está próxima do vencimento — faltam ${diffDays} dia${diffDays !== 1 ? 's' : ''}.`,
-        variant: 'yellow' as const,
-      }
-    }
-    return null
+    }).catch(() => {})
   }, [user?.linkedStudentId])
 
   return (

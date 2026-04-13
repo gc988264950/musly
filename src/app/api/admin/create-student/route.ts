@@ -24,7 +24,9 @@ export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (!user || user.user_metadata?.role !== 'professor') {
+  // Allow professors (explicit role) and users without role set (Google OAuth
+  // professors whose metadata hasn't propagated yet). Only block 'aluno' role.
+  if (!user || user.user_metadata?.role === 'aluno') {
     return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
   }
 

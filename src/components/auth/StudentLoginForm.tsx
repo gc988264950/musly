@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Mail, Lock, Eye, EyeOff, GraduationCap } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, GraduationCap, HelpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { createClient } from '@/lib/supabase/client'
@@ -101,6 +101,9 @@ export default function StudentLoginForm() {
             </button>
           }
         />
+
+        {/* Forgot password — students must contact their teacher */}
+        <ForgotPasswordNote />
       </div>
 
       <Button type="submit" variant="primary" size="lg" loading={loading} className="w-full">
@@ -114,5 +117,32 @@ export default function StudentLoginForm() {
         </Link>
       </p>
     </form>
+  )
+}
+
+// ─── Forgot password note for students ───────────────────────────────────────
+
+function ForgotPasswordNote() {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+      >
+        <HelpCircle className="h-3.5 w-3.5" />
+        Esqueci minha senha
+      </button>
+
+      {open && (
+        <div className="mt-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs text-amber-800 leading-relaxed">
+          <strong>Para redefinir sua senha, entre em contato com seu professor.</strong>
+          <br />
+          O professor pode alterar suas credenciais de acesso diretamente pelo painel deles.
+        </div>
+      )}
+    </div>
   )
 }
