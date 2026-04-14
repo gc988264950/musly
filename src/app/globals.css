@@ -117,12 +117,27 @@ select {
   from { transform: translateX(0); }
   to   { transform: translateX(-50%); }
 }
-.animate-marquee { animation: marquee 30s linear infinite; }
-.animate-float          { animation: float       4.5s ease-in-out infinite; }
-.animate-float-slow     { animation: floatSlow   6s   ease-in-out infinite 1s; }
-.animate-float-slower   { animation: floatSlower 7.5s ease-in-out infinite 2s; }
-.animate-pulse-glow     { animation: pulseGlow   5s   ease-in-out infinite; }
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes dotPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50%       { transform: scale(1.5); opacity: 0.6; }
+}
+.animate-marquee        { animation: marquee    30s  linear          infinite; }
+.animate-float          { animation: float       4.5s ease-in-out   infinite; }
+.animate-float-slow     { animation: floatSlow   6s   ease-in-out   infinite 1s; }
+.animate-float-slower   { animation: floatSlower 7.5s ease-in-out   infinite 2s; }
+.animate-pulse-glow     { animation: pulseGlow   5s   ease-in-out   infinite; }
 .animate-hero-word      { animation: heroWordIn  0.7s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-scale-in       { animation: scaleIn     0.6s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-slide-up       { animation: slideUp     0.7s cubic-bezier(0.22,1,0.36,1) both; }
+.animate-dot-pulse      { animation: dotPulse    2s   ease-in-out   infinite; }
 
 /* Eliminate 300ms tap delay and double-tap zoom on interactive elements */
 button,

@@ -34,14 +34,18 @@ export default function FAQSection() {
   const [open, setOpen] = useState<number | null>(null)
 
   return (
-    <section id="faq" className="bg-black py-28">
+    <section id="faq" className="bg-[#f8fafc] py-28">
       <div className="mx-auto max-w-3xl px-6 lg:px-8">
 
-        <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#1a7cfa]">FAQ</p>
-        <h2 className="mb-16 text-4xl font-black leading-tight text-white lg:text-[52px]">
-          Perguntas<br />
-          <span className="text-white/30">frequentes.</span>
-        </h2>
+        <div className="text-center mb-16">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-brand-500">FAQ</p>
+          <h2 className="text-4xl font-black leading-tight text-[#0f172a] lg:text-[52px]">
+            Perguntas frequentes
+          </h2>
+          <p className="mt-4 text-slate-500 text-lg max-w-lg mx-auto">
+            Tudo que você precisa saber antes de começar.
+          </p>
+        </div>
 
         <div className="space-y-2">
           {FAQS.map((faq, i) => {
@@ -51,31 +55,28 @@ export default function FAQSection() {
                 key={i}
                 className={`overflow-hidden rounded-2xl border transition-all duration-300 ${
                   isOpen
-                    ? 'border-[#1a7cfa]/30 bg-[#1a7cfa]/[0.04]'
-                    : 'border-white/[0.07] bg-white/[0.02] hover:border-white/[0.12]'
+                    ? 'border-brand-200 bg-blue-50/50'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
                 }`}
               >
                 <button
                   className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
                   onClick={() => setOpen(isOpen ? null : i)}
                 >
-                  <span className="text-[15px] font-semibold text-white">{faq.q}</span>
+                  <span className="text-[15px] font-semibold text-[#0f172a]">{faq.q}</span>
                   <span className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full transition-colors ${
-                    isOpen ? 'bg-[#1a7cfa] text-white' : 'bg-white/10 text-white/60'
+                    isOpen ? 'bg-brand-500 text-white' : 'bg-gray-100 text-slate-500'
                   }`}>
-                    {isOpen
-                      ? <Minus className="h-3 w-3" />
-                      : <Plus  className="h-3 w-3" />
-                    }
+                    {isOpen ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
                   </span>
                 </button>
                 <div
-                  className={`transition-all duration-300 ease-in-out ${
+                  className={`transition-all duration-300 ease-in-out overflow-hidden ${
                     isOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
-                  } overflow-hidden`}
+                  }`}
                 >
-                  <div className="border-t border-white/[0.06] px-6 pb-6 pt-4">
-                    <p className="text-[14px] leading-relaxed text-white/50">{faq.a}</p>
+                  <div className="border-t border-gray-100 px-6 pb-6 pt-4">
+                    <p className="text-[14px] leading-relaxed text-slate-600">{faq.a}</p>
                   </div>
                 </div>
               </div>
