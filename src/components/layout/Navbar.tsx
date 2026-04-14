@@ -7,7 +7,9 @@ import { MuslyLogo } from '@/components/ui/MuslyLogo'
 
 const navLinks = [
   { label: 'Funcionalidades', href: '#features' },
-  { label: 'Preços', href: '#pricing' },
+  { label: 'IA Musical',      href: '#ia' },
+  { label: 'Planos',          href: '#pricing' },
+  { label: 'FAQ',             href: '#faq' },
 ]
 
 export default function Navbar() {

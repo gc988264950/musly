@@ -113,6 +113,11 @@ select {
   from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee 30s linear infinite; }
 .animate-float          { animation: float       4.5s ease-in-out infinite; }
 .animate-float-slow     { animation: floatSlow   6s   ease-in-out infinite 1s; }
 .animate-float-slower   { animation: floatSlower 7.5s ease-in-out infinite 2s; }
