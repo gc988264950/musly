@@ -88,6 +88,23 @@ select {
   font-size: max(16px, 1em);
 }
 
+/* ── Landing page floating animations ─────────────────────────────────────── */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-10px); }
+}
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-7px); }
+}
+@keyframes floatSlower {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-5px); }
+}
+.animate-float        { animation: float       3.5s ease-in-out infinite; }
+.animate-float-slow   { animation: floatSlow   4.5s ease-in-out infinite 0.8s; }
+.animate-float-slower { animation: floatSlower 5.5s ease-in-out infinite 1.5s; }
+
 /* Eliminate 300ms tap delay and double-tap zoom on interactive elements */
 button,
 a,
