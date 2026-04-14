@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
+import MusicTeacherFigure from '@/components/landing/MusicTeacherFigure'
+import FadeIn from '@/components/landing/FadeIn'
 import {
   Music,
   Calendar,
@@ -110,85 +112,7 @@ function DashboardMock() {
   )
 }
 
-// ─── Hero visual — floating cards ────────────────────────────────────────────
-
-function HeroVisual() {
-  return (
-    <div className="relative w-full h-[520px] select-none">
-      {/* Glow orb background */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div
-          className="w-[380px] h-[380px] rounded-full opacity-20 blur-3xl"
-          style={{ background: 'radial-gradient(circle, #1a7cfa 0%, #3b82f6 40%, transparent 70%)' }}
-        />
-      </div>
-
-      {/* Subtle grid pattern */}
-      <div
-        className="absolute inset-0 opacity-[0.035]"
-        style={{
-          backgroundImage: 'linear-gradient(#1a7cfa 1px, transparent 1px), linear-gradient(90deg, #1a7cfa 1px, transparent 1px)',
-          backgroundSize: '40px 40px',
-        }}
-      />
-
-      {/* Central app frame */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] rounded-2xl shadow-2xl overflow-hidden border border-white/60 backdrop-blur-sm bg-white/95">
-        <DashboardMock />
-      </div>
-
-      {/* Floating card — AI insight */}
-      <div className="absolute top-10 right-4 w-[180px] rounded-2xl bg-white shadow-xl border border-gray-100 p-3.5 animate-float">
-        <div className="flex items-center gap-2 mb-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-purple-100">
-            <Sparkles className="h-3.5 w-3.5 text-purple-600" />
-          </div>
-          <span className="text-[11px] font-bold text-gray-900">Musly IA</span>
-        </div>
-        <p className="text-[10px] text-gray-500 leading-relaxed">
-          Lucas precisa de atenção em mudança de acordes. Sugerido: exercício de transição D→G.
-        </p>
-        <div className="mt-2 flex items-center gap-1">
-          <div className="h-1.5 flex-1 rounded-full bg-gray-100">
-            <div className="h-1.5 w-3/4 rounded-full bg-[#1a7cfa]" />
-          </div>
-          <span className="text-[9px] text-gray-400">75%</span>
-        </div>
-      </div>
-
-      {/* Floating card — próxima aula */}
-      <div className="absolute bottom-24 right-0 w-[165px] rounded-2xl bg-[#0d1f3c] shadow-xl p-3.5 animate-float-slow">
-        <p className="text-[9px] font-semibold text-blue-300 uppercase tracking-wider mb-1.5">Próxima aula</p>
-        <p className="text-white text-[11px] font-bold">Marina Silva</p>
-        <p className="text-blue-300 text-[10px]">Piano · 45 min</p>
-        <div className="mt-2.5 flex items-center gap-1.5">
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#1a7cfa]">
-            <Clock className="h-2.5 w-2.5 text-white" />
-          </div>
-          <span className="text-blue-200 text-[10px] font-semibold">14:00</span>
-        </div>
-      </div>
-
-      {/* Floating card — receita */}
-      <div className="absolute top-20 left-0 w-[155px] rounded-2xl bg-white shadow-xl border border-gray-100 p-3.5 animate-float-slower">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] text-gray-500 font-medium">Receita do mês</span>
-          <TrendingUp className="h-3 w-3 text-green-500" />
-        </div>
-        <p className="text-xl font-black text-gray-900">R$&nbsp;3.200</p>
-        <p className="text-[9px] text-green-600 font-medium mt-0.5">+18% vs mês anterior</p>
-      </div>
-
-      {/* Floating badge — nota musical */}
-      <div className="absolute bottom-10 left-6 flex items-center gap-2 rounded-full bg-white shadow-lg border border-gray-100 px-3 py-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#eef5ff]">
-          <Music className="h-3 w-3 text-[#1a7cfa]" />
-        </div>
-        <span className="text-[11px] font-semibold text-gray-700">42 aulas este mês</span>
-      </div>
-    </div>
-  )
-}
+// HeroVisual is now MusicTeacherFigure (imported from components/landing)
 
 // ─── Feature card component ───────────────────────────────────────────────────
 
@@ -346,28 +270,44 @@ export default function LandingPage() {
             {/* Left — copy */}
             <div className="max-w-xl">
               {/* Badge */}
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-[#eef5ff] px-4 py-1.5">
+              <div
+                className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-[#eef5ff] px-4 py-1.5 animate-hero-word"
+                style={{ animationDelay: '0ms' }}
+              >
                 <Sparkles className="h-3.5 w-3.5 text-[#1a7cfa]" />
                 <span className="text-xs font-semibold text-[#1a7cfa]">IA especializada em música</span>
               </div>
 
-              {/* Headline */}
+              {/* Headline — word-by-word entrance */}
               <h1 className="text-5xl font-black leading-[1.08] tracking-tight text-gray-900 lg:text-[58px]">
-                Gerencie seu
-                <br />
-                <span style={{ color: BLUE }}>Estúdio Musical</span>
-                <br />
-                com Inteligência.
+                <span className="block animate-hero-word" style={{ animationDelay: '80ms' }}>
+                  Gerencie seu
+                </span>
+                <span
+                  className="block animate-hero-word"
+                  style={{ animationDelay: '200ms', color: BLUE }}
+                >
+                  Estúdio Musical
+                </span>
+                <span className="block animate-hero-word" style={{ animationDelay: '340ms' }}>
+                  com Inteligência.
+                </span>
               </h1>
 
-              <p className="mt-6 text-lg leading-relaxed text-gray-500">
+              <p
+                className="mt-6 text-lg leading-relaxed text-gray-500 animate-hero-word"
+                style={{ animationDelay: '500ms' }}
+              >
                 Musly é a plataforma completa para professores de música —
                 alunos, aulas, finanças e IA em um só lugar. Menos burocracia,
                 mais tempo para o que importa: <strong className="text-gray-700">ensinar.</strong>
               </p>
 
               {/* CTAs */}
-              <div className="mt-8 flex flex-wrap items-center gap-4">
+              <div
+                className="mt-8 flex flex-wrap items-center gap-4 animate-hero-word"
+                style={{ animationDelay: '640ms' }}
+              >
                 <Link
                   href="/register"
                   className="inline-flex items-center gap-2 rounded-xl px-7 py-3.5 text-sm font-bold text-white shadow-lg shadow-blue-200 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-blue-300"
@@ -386,7 +326,10 @@ export default function LandingPage() {
               </div>
 
               {/* Social proof micro */}
-              <div className="mt-8 flex items-center gap-3">
+              <div
+                className="mt-8 flex items-center gap-3 animate-hero-word"
+                style={{ animationDelay: '760ms' }}
+              >
                 <div className="flex -space-x-2">
                   {['#1a7cfa', '#22c55e', '#f59e0b', '#8b5cf6'].map((c, i) => (
                     <div
@@ -405,9 +348,9 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Right — visual */}
+            {/* Right — music teacher figure */}
             <div className="hidden lg:block">
-              <HeroVisual />
+              <MusicTeacherFigure />
             </div>
           </div>
         </div>
@@ -432,54 +375,39 @@ export default function LandingPage() {
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
 
           {/* Section label */}
-          <div className="mb-4 flex items-center gap-2 text-sm font-semibold" style={{ color: BLUE }}>
-            <div className="h-px w-8 bg-[#1a7cfa]" />
-            Funcionalidades
-          </div>
+          <FadeIn direction="up">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold" style={{ color: BLUE }}>
+              <div className="h-px w-8 bg-[#1a7cfa]" />
+              Funcionalidades
+            </div>
+          </FadeIn>
 
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between mb-14">
-            <h2 className="max-w-lg text-4xl font-black tracking-tight text-gray-900 lg:text-5xl">
-              Inspire seus alunos
-              <br />
-              <span style={{ color: BLUE }}>a Evoluir.</span>
-            </h2>
-            <p className="max-w-sm text-[15px] text-gray-500 leading-relaxed lg:text-right">
-              Ferramentas pensadas para o dia a dia do professor — da agenda à análise de progresso com IA.
-            </p>
-          </div>
+          <FadeIn direction="up" delay={80}>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between mb-14">
+              <h2 className="max-w-lg text-4xl font-black tracking-tight text-gray-900 lg:text-5xl">
+                Inspire seus alunos
+                <br />
+                <span style={{ color: BLUE }}>a Evoluir.</span>
+              </h2>
+              <p className="max-w-sm text-[15px] text-gray-500 leading-relaxed lg:text-right">
+                Ferramentas pensadas para o dia a dia do professor — da agenda à análise de progresso com IA.
+              </p>
+            </div>
+          </FadeIn>
 
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            <FeatureCard
-              icon={<Users className="h-5 w-5" />}
-              title="Gestão de Alunos"
-              desc="Perfil completo de cada aluno — instrumento, nível, repertório, progresso e anotações em um só lugar."
-            />
-            <FeatureCard
-              icon={<Brain className="h-5 w-5" />}
-              title="IA Musical"
-              accent
-              desc="Assistente especializada em pedagogia musical. Pergunte sobre seus alunos, gere exercícios e planos de aula."
-            />
-            <FeatureCard
-              icon={<Calendar className="h-5 w-5" />}
-              title="Agenda Inteligente"
-              desc="Organize suas aulas, veja o dia de forma visual e nunca mais perca um horário com notificações automáticas."
-            />
-            <FeatureCard
-              icon={<BarChart2 className="h-5 w-5" />}
-              title="Progresso & Evolução"
-              desc="Registre tags de desempenho durante as aulas e acompanhe a evolução de cada aluno com gráficos e histórico."
-            />
-            <FeatureCard
-              icon={<CreditCard className="h-5 w-5" />}
-              title="Financeiro Completo"
-              desc="Controle mensalidades, registre pagamentos e acompanhe sua receita mensal sem planilhas."
-            />
-            <FeatureCard
-              icon={<BookOpen className="h-5 w-5" />}
-              title="Modo de Aula"
-              desc="Cronômetro, anotações em tempo real, materiais e tags de performance — tudo enquanto você dá aula."
-            />
+            {[
+              { icon: <Users className="h-5 w-5" />,    title: 'Gestão de Alunos',    accent: false, desc: 'Perfil completo de cada aluno — instrumento, nível, repertório, progresso e anotações em um só lugar.' },
+              { icon: <Brain className="h-5 w-5" />,    title: 'IA Musical',           accent: true,  desc: 'Assistente especializada em pedagogia musical. Pergunte sobre seus alunos, gere exercícios e planos de aula.' },
+              { icon: <Calendar className="h-5 w-5" />, title: 'Agenda Inteligente',   accent: false, desc: 'Organize suas aulas, veja o dia de forma visual e nunca mais perca um horário com notificações automáticas.' },
+              { icon: <BarChart2 className="h-5 w-5" />,title: 'Progresso & Evolução', accent: false, desc: 'Registre tags de desempenho durante as aulas e acompanhe a evolução de cada aluno com gráficos e histórico.' },
+              { icon: <CreditCard className="h-5 w-5" />,title:'Financeiro Completo',   accent: false, desc: 'Controle mensalidades, registre pagamentos e acompanhe sua receita mensal sem planilhas.' },
+              { icon: <BookOpen className="h-5 w-5" />, title: 'Modo de Aula',         accent: false, desc: 'Cronômetro, anotações em tempo real, materiais e tags de performance — tudo enquanto você dá aula.' },
+            ].map((card, i) => (
+              <FadeIn key={card.title} direction="up" delay={i * 80} duration={800}>
+                <FeatureCard {...card} />
+              </FadeIn>
+            ))}
           </div>
         </div>
       </section>
@@ -489,21 +417,24 @@ export default function LandingPage() {
       ══════════════════════════════════════════════════════════════════════ */}
       <section className="bg-[#f8fafc] py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
-          <div className="mb-4 flex items-center gap-2 text-sm font-semibold" style={{ color: BLUE }}>
-            <div className="h-px w-8 bg-[#1a7cfa]" />
-            Potencialize o Ensino com IA
-          </div>
-          <h2 className="mb-16 max-w-2xl text-4xl font-black tracking-tight text-gray-900 lg:text-5xl">
-            IA que entende{' '}
-            <span style={{ color: BLUE }}>música</span>{' '}
-            e conhece{' '}
-            <span style={{ color: BLUE }}>seus alunos.</span>
-          </h2>
+          <FadeIn direction="up">
+            <div className="mb-4 flex items-center gap-2 text-sm font-semibold" style={{ color: BLUE }}>
+              <div className="h-px w-8 bg-[#1a7cfa]" />
+              Potencialize o Ensino com IA
+            </div>
+            <h2 className="mb-16 max-w-2xl text-4xl font-black tracking-tight text-gray-900 lg:text-5xl">
+              IA que entende{' '}
+              <span style={{ color: BLUE }}>música</span>{' '}
+              e conhece{' '}
+              <span style={{ color: BLUE }}>seus alunos.</span>
+            </h2>
+          </FadeIn>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
             {/* Big card left */}
-            <div className="lg:col-span-2 rounded-2xl border border-gray-100 bg-white p-8 flex flex-col justify-between min-h-[340px]">
+            <FadeIn direction="left" className="lg:col-span-2">
+            <div className="rounded-2xl border border-gray-100 bg-white p-8 flex flex-col justify-between min-h-[340px]">
               <div>
                 <div className="mb-4 inline-flex items-center gap-2 rounded-xl bg-purple-50 px-3 py-1.5">
                   <Sparkles className="h-4 w-4 text-purple-600" />
@@ -534,9 +465,10 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
+            </FadeIn>
 
             {/* Stack right */}
-            <div className="flex flex-col gap-6">
+            <FadeIn direction="right" delay={160} className="flex flex-col gap-6">
               <div className="flex-1 rounded-2xl border border-gray-100 bg-white p-6">
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50">
                   <Zap className="h-5 w-5 text-amber-500" />
@@ -555,7 +487,7 @@ export default function LandingPage() {
                   &ldquo;Crie um plano de aula de 60 min para violão intermediário.&rdquo; Pronto.
                 </p>
               </div>
-            </div>
+            </FadeIn>
           </div>
         </div>
       </section>
@@ -709,21 +641,15 @@ export default function LandingPage() {
             <span style={{ color: BLUE }}>estão dizendo.</span>
           </h2>
           <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-            <Testimonial
-              quote="Antes eu usava caderno, depois planilha, agora uso a Musly. É outra categoria. Tenho tudo do meu estúdio em um lugar só."
-              name="Ana Beatriz"
-              role="Professora de Piano · São Paulo"
-            />
-            <Testimonial
-              quote="A IA é surpreendente. Perguntei 'como tá minha aluna com teoria musical?' e ela respondeu com o histórico real das últimas aulas. Impressionante."
-              name="Rodrigo Mendes"
-              role="Professor de Violão · Belo Horizonte"
-            />
-            <Testimonial
-              quote="Economizo 2 horas por semana em burocracia financeira. O controle de mensalidades é perfeito para quem tem mais de 10 alunos."
-              name="Fernanda Lima"
-              role="Professora de Violino · Curitiba"
-            />
+            {[
+              { quote: 'Antes eu usava caderno, depois planilha, agora uso a Musly. É outra categoria. Tenho tudo do meu estúdio em um lugar só.', name: 'Ana Beatriz', role: 'Professora de Piano · São Paulo' },
+              { quote: "A IA é surpreendente. Perguntei 'como tá minha aluna com teoria musical?' e ela respondeu com o histórico real das últimas aulas. Impressionante.", name: 'Rodrigo Mendes', role: 'Professor de Violão · Belo Horizonte' },
+              { quote: 'Economizo 2 horas por semana em burocracia financeira. O controle de mensalidades é perfeito para quem tem mais de 10 alunos.', name: 'Fernanda Lima', role: 'Professora de Violino · Curitiba' },
+            ].map((t, i) => (
+              <FadeIn key={t.name} direction="up" delay={i * 100} duration={800}>
+                <Testimonial {...t} />
+              </FadeIn>
+            ))}
           </div>
         </div>
       </section>
@@ -747,51 +673,31 @@ export default function LandingPage() {
             </p>
           </div>
           <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            <PlanCard
+            <FadeIn direction="up" delay={0} duration={800}><PlanCard
               name="Grátis"
               price="Grátis"
               desc="Para professores que estão começando."
-              features={[
-                'Até 3 alunos',
-                'Até 5 aulas por mês',
-                '10 créditos de IA / mês',
-                'Histórico de aulas',
-                'Anotações por aluno',
-              ]}
+              features={['Até 3 alunos','Até 5 aulas por mês','10 créditos de IA / mês','Histórico de aulas','Anotações por aluno']}
               cta="Começar grátis"
               href="/register"
-            />
-            <PlanCard
+            /></FadeIn>
+            <FadeIn direction="up" delay={120} duration={800}><PlanCard
               name="Pro"
               price="R$ 49,90"
               desc="Para professores ativos com muitos alunos."
-              features={[
-                'Até 10 alunos',
-                'Aulas ilimitadas',
-                '100 créditos de IA / mês',
-                'Perfil pedagógico completo',
-                'Financeiro com histórico',
-                'Progresso e repertório por aluno',
-              ]}
+              features={['Até 10 alunos','Aulas ilimitadas','100 créditos de IA / mês','Perfil pedagógico completo','Financeiro com histórico','Progresso e repertório por aluno']}
               highlighted
               cta="Assinar Pro"
               href="/register?plan=pro"
-            />
-            <PlanCard
+            /></FadeIn>
+            <FadeIn direction="up" delay={240} duration={800}><PlanCard
               name="Studio"
               price="R$ 99,90"
               desc="Para escolas e professores com múltiplas turmas."
-              features={[
-                'Alunos ilimitados',
-                'Aulas ilimitadas',
-                '300 créditos de IA / mês',
-                'IA avançada (GPT-4o)',
-                'Múltiplos professores (em breve)',
-                'Suporte prioritário',
-              ]}
+              features={['Alunos ilimitados','Aulas ilimitadas','300 créditos de IA / mês','IA avançada (GPT-4o)','Múltiplos professores (em breve)','Suporte prioritário']}
               cta="Assinar Studio"
               href="/register?plan=studio"
-            />
+            /></FadeIn>
           </div>
         </div>
       </section>
