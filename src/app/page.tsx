@@ -326,10 +326,15 @@ export default function Home() {
       <main>
 
         {/* ── 1. HERO ────────────────────────────────────────────────────────── */}
-        <section className="relative overflow-hidden bg-white pt-20 pb-28 lg:pt-28 lg:pb-36">
+        {/*
+         * NOTE: overflow-hidden is intentionally NOT on this section.
+         * It was scoped to the background decoration div below so it only clips
+         * the blurred circles — not the MuslyEcosystem cards that float near edges.
+         */}
+        <section className="relative bg-white pt-20 pb-28 lg:pt-28 lg:pb-36">
 
-          {/* Background decoration */}
-          <div className="pointer-events-none absolute inset-0">
+          {/* Background decoration — clipped to this div only */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
             <div className="absolute -top-40 right-0 h-[700px] w-[700px] rounded-full bg-brand-500/[0.05] blur-[100px]" />
             <div className="absolute top-20 right-1/4 h-[400px] w-[400px] rounded-full bg-violet-500/[0.03] blur-[80px]" />
           </div>
