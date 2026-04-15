@@ -3,7 +3,7 @@ import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
 import FAQSection from '@/components/landing/FAQSection'
 import FadeIn from '@/components/landing/FadeIn'
-import DashboardMockup from '@/components/landing/DashboardMockup'
+import MuslyEcosystem from '@/components/ui/musly-ecosystem'
 import {
   Music, Calendar, BarChart2, CreditCard, ArrowRight,
   Users, Zap, BookOpen, Bell, Sparkles, Star,
@@ -405,12 +405,12 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Right: Dashboard mockup */}
+              {/* Right: Ecosystem animation */}
               <div
-                className="animate-scale-in lg:pl-4"
+                className="animate-scale-in flex items-center justify-center lg:pl-4"
                 style={{ animationDelay: '120ms' }}
               >
-                <DashboardMockup />
+                <MuslyEcosystem />
               </div>
             </div>
           </div>
