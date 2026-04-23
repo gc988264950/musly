@@ -1,7 +1,7 @@
 # Política de Privacidade
 
 **Musly — Plataforma de Gestão de Estúdio Musical**
-**Última atualização:** [DATA DE VIGÊNCIA]
+**Última atualização:** 22 de abril de 2026
 **Versão:** 1.0
 
 Esta Política de Privacidade foi elaborada em conformidade com a **Lei Geral de Proteção de Dados Pessoais (LGPD) — Lei nº 13.709/2018** e com o **Marco Civil da Internet — Lei nº 12.965/2014**.
@@ -14,10 +14,10 @@ O controlador dos dados pessoais tratados por meio da plataforma Musly é:
 
 | Campo | Dado |
 |---|---|
-| **Razão Social** | [RAZÃO SOCIAL] |
-| **CNPJ** | [CNPJ] |
-| **Endereço** | [ENDEREÇO COMPLETO] |
-| **E-mail DPO/Privacidade** | [E-MAIL PARA LGPD] |
+| **Razão Social** | 53.486.310 Gabriel da Cruz de Barros |
+| **CNPJ** | 53.486.310/0001-24 |
+| **Endereço** | Tatuí - SP, Brasil |
+| **E-mail DPO/Privacidade** | privacidade@musly.com |
 
 ---
 
@@ -163,7 +163,7 @@ Nos termos do art. 18 da LGPD, você tem os seguintes direitos em relação aos 
 | **Oposição** | Opor-se ao tratamento em caso de descumprimento da LGPD |
 | **Informação sobre compartilhamento** | Saber com quem seus dados são compartilhados |
 
-Para exercer esses direitos, acesse nosso [Canal LGPD] ou envie solicitação ao e-mail **[E-MAIL PARA LGPD]**. Responderemos em até 15 dias úteis.
+Para exercer esses direitos, acesse nosso [Canal LGPD] ou envie solicitação ao e-mail **privacidade@musly.com**. Responderemos em até 15 dias úteis.
 
 A Musly pode solicitar verificação de identidade antes de atender a solicitações de titulares.
 
@@ -179,7 +179,7 @@ Para informações detalhadas sobre o uso de cookies, consulte nossa [Política 
 
 A Musly não coleta dados de menores de 18 anos diretamente. O Portal do Aluno pode ser acessado por menores, mas somente mediante criação de acesso pelo professor responsável, que declara ter obtido o consentimento do responsável legal.
 
-Caso identificarmos que dados de menores foram coletados sem o consentimento adequado, tomaremos medidas para excluí-los. Para reportar situações desse tipo, entre em contato pelo e-mail **[E-MAIL PARA LGPD]**.
+Caso identificarmos que dados de menores foram coletados sem o consentimento adequado, tomaremos medidas para excluí-los. Para reportar situações desse tipo, entre em contato pelo e-mail **privacidade@musly.com**.
 
 ---
 
@@ -192,9 +192,9 @@ Esta Política pode ser atualizada periodicamente. Comunicaremos alterações re
 ## 13. Contato e Encarregado (DPO)
 
 **Encarregado de Proteção de Dados (DPO):**
-- **Nome/Departamento:** [NOME DO DPO OU "Equipe de Privacidade da Musly"]
-- **E-mail:** [E-MAIL PARA LGPD]
-- **Endereço:** [ENDEREÇO COMPLETO]
+- **Nome/Departamento:** Gabriel da Cruz de Barros
+- **E-mail:** privacidade@musly.com
+- **Endereço:** Tatuí - SP, Brasil
 
 **Autoridade Nacional de Proteção de Dados (ANPD):**
 Caso entenda que seus direitos não foram atendidos, você pode contatar a ANPD em [gov.br/anpd](https://www.gov.br/anpd).

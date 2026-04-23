@@ -1,14 +1,14 @@
 # Termos de Uso
 
 **Musly — Plataforma de Gestão de Estúdio Musical**
-**Última atualização:** [DATA DE VIGÊNCIA]
+**Última atualização:** 22 de abril de 2026
 **Versão:** 1.0
 
 ---
 
 ## 1. Identificação das Partes e Aceitação
 
-Estes Termos de Uso ("Termos") constituem um contrato juridicamente vinculante entre você ("Usuário") e **[RAZÃO SOCIAL]**, inscrita no CNPJ sob o nº **[CNPJ]**, com sede em **[ENDEREÇO COMPLETO]** ("Musly", "nós" ou "a plataforma").
+Estes Termos de Uso ("Termos") constituem um contrato juridicamente vinculante entre você ("Usuário") e **53.486.310 Gabriel da Cruz de Barros**, inscrita no CNPJ sob o nº **53.486.310/0001-24**, com sede em **Tatuí - SP, Brasil** ("Musly", "nós" ou "a plataforma").
 
 Ao criar uma conta, acessar ou utilizar qualquer funcionalidade da plataforma Musly, você declara ter lido, compreendido e concordado integralmente com estes Termos. Caso não concorde, não utilize a plataforma.
 
@@ -51,7 +51,7 @@ O professor-titular pode criar acessos ao **Portal do Aluno** para seus alunos. 
 
 ### 3.3 Segurança da Conta
 
-O Usuário é responsável por manter a confidencialidade de suas credenciais de acesso. Qualquer atividade realizada com suas credenciais é de sua responsabilidade. Em caso de suspeita de acesso não autorizado, notifique-nos imediatamente pelo e-mail **[E-MAIL DE CONTATO]**.
+O Usuário é responsável por manter a confidencialidade de suas credenciais de acesso. Qualquer atividade realizada com suas credenciais é de sua responsabilidade. Em caso de suspeita de acesso não autorizado, notifique-nos imediatamente pelo e-mail **suporte@musly.com**.
 
 ### 3.4 Uma Conta por Pessoa
 
@@ -63,7 +63,7 @@ Salvo quando expressamente permitido por um plano específico, cada professor de
 
 ### 4.1 Planos Disponíveis
 
-A Musly oferece planos conforme descrito na página de Planos, sujeitos a alterações com aviso prévio ao Usuário. As informações atualizadas sobre planos, preços e funcionalidades estão sempre disponíveis em [URL DE PLANOS].
+A Musly oferece planos conforme descrito na página de Planos, sujeitos a alterações com aviso prévio ao Usuário. As informações atualizadas sobre planos, preços e funcionalidades estão sempre disponíveis em https://musly.com/planos.
 
 ### 4.2 Plano Gratuito
 
@@ -140,6 +140,19 @@ O Usuário concede à Musly uma licença não exclusiva, mundial, gratuita e rev
 
 O Usuário é exclusivamente responsável por todo conteúdo que inserir na plataforma, incluindo materiais enviados para o Portal do Aluno. A Musly não monitora ativamente o conteúdo dos usuários, mas reserva-se o direito de remover conteúdo que viole estes Termos ou a legislação aplicável.
 
+### 7.4 Responsabilidade pelos Dados de Alunos
+
+**O professor é integralmente responsável pelos dados inseridos de seus alunos na plataforma, incluindo, mas não se limitando, à veracidade, legalidade e autorização para uso dessas informações.**
+
+Em especial, o professor declara e garante que:
+
+- Possui autorização legal para coletar, armazenar e tratar os dados pessoais de cada aluno cadastrado, inclusive no que diz respeito aos dados de saúde, desempenho e comportamento pedagógico
+- Obteve, quando aplicável, o consentimento do responsável legal para o tratamento de dados de alunos menores de 18 anos
+- Os dados inseridos são verídicos e não violam direitos de terceiros
+- Comunicará imediatamente à Musly (pelo e-mail suporte@musly.com) qualquer revogação de consentimento por parte de um titular ou responsável
+
+A Musly atua como **operadora** dos dados de alunos inseridos pelo professor, nos termos do art. 5º, VII, da LGPD. O professor, nessa relação, é o **controlador** dos dados e, portanto, titular das obrigações legais correspondentes perante os alunos e a ANPD.
+
 ---
 
 ## 8. Disponibilidade e Manutenção
@@ -171,7 +184,7 @@ A Musly pode suspender ou encerrar uma conta, a seu exclusivo critério, se o Us
 
 ### 9.2 Encerramento Voluntário
 
-O Usuário pode encerrar sua conta a qualquer momento pelo painel de configurações ou por solicitação ao e-mail **[E-MAIL DE CONTATO]**. Os dados ficam disponíveis por 30 dias após o encerramento para exportação, sendo então excluídos conforme nossa [Política de Privacidade].
+O Usuário pode encerrar sua conta a qualquer momento pelo painel de configurações ou por solicitação ao e-mail **suporte@musly.com**. Os dados ficam disponíveis por 30 dias após o encerramento para exportação, sendo então excluídos conforme nossa [Política de Privacidade].
 
 ### 9.3 Efeito do Encerramento
 
@@ -212,14 +225,14 @@ A Musly pode alterar estes Termos a qualquer tempo. Alterações relevantes ser�
 
 ## 12. Lei Aplicável e Foro
 
-Estes Termos são regidos pelas leis da República Federativa do Brasil. Fica eleito o foro da comarca de **[CIDADE/ESTADO]** para dirimir quaisquer controvérsias decorrentes destes Termos, ressalvada a competência de foro especial prevista no Código de Defesa do Consumidor.
+Estes Termos são regidos pelas leis da República Federativa do Brasil. Fica eleito o foro da comarca de **Tatuí - SP** para dirimir quaisquer controvérsias decorrentes destes Termos, ressalvada a competência de foro especial prevista no Código de Defesa do Consumidor.
 
 ---
 
 ## 13. Contato
 
 Para dúvidas sobre estes Termos:
-- **E-mail:** [E-MAIL DE CONTATO]
-- **Endereço:** [ENDEREÇO COMPLETO]
+- **E-mail:** suporte@musly.com
+- **Endereço:** Tatuí - SP, Brasil
 
 Para questões relacionadas à proteção de dados e privacidade, consulte nossa [Política de Privacidade] ou acesse nosso [Canal LGPD].

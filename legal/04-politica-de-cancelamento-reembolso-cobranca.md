@@ -1,7 +1,7 @@
 # Política de Cancelamento, Reembolso e Cobrança
 
 **Musly — Plataforma de Gestão de Estúdio Musical**
-**Última atualização:** [DATA DE VIGÊNCIA]
+**Última atualização:** 22 de abril de 2026
 
 Esta política complementa os [Termos de Uso] e é regida pelo **Código de Defesa do Consumidor (Lei nº 8.078/1990)** e pelas condições comerciais da Musly.
 
@@ -18,7 +18,7 @@ O plano gratuito não requer dados de pagamento e não gera cobranças. Ele perm
 - Os planos pagos são cobrados de forma recorrente, conforme o período selecionado no ato da contratação (mensal ou anual, quando disponível)
 - A cobrança é realizada **antecipadamente** no início de cada período
 - O acesso às funcionalidades do plano pago é ativado assim que o pagamento é confirmado
-- Os preços vigentes estão disponíveis em [URL DE PLANOS] e podem ser alterados com aviso prévio de 30 dias
+- Os preços vigentes estão disponíveis em https://musly.com/planos e podem ser alterados com aviso prévio de 30 dias
 
 ### 1.3 Créditos de IA Avulsos
 
@@ -29,7 +29,7 @@ O plano gratuito não requer dados de pagamento e não gera cobranças. Ele perm
 
 ### 1.4 Gateway de Pagamento
 
-Os pagamentos são processados por **[NOME DO GATEWAY — ex: Cakto]**. A Musly não armazena dados completos de cartão de crédito. O Usuário está sujeito também aos termos do gateway de pagamento utilizado.
+Os pagamentos são processados por **Cakto**. A Musly não armazena dados completos de cartão de crédito. O Usuário está sujeito também aos termos do gateway de pagamento utilizado.
 
 ---
 
@@ -39,7 +39,7 @@ Os pagamentos são processados por **[NOME DO GATEWAY — ex: Cakto]**. A Musly 
 
 O cancelamento pode ser realizado a qualquer momento:
 - Pelo painel da Musly, em **Configurações → Plano → Cancelar assinatura**
-- Por e-mail enviado para **[E-MAIL DE CONTATO]** com o assunto "Cancelamento de Assinatura"
+- Por e-mail enviado para **suporte@musly.com** com o assunto "Cancelamento de Assinatura"
 
 O cancelamento entra em vigor ao final do período já pago. **Não há cancelamento com efeito imediato sobre períodos já cobrados**, exceto nos casos de arrependimento descritos abaixo.
 
@@ -58,7 +58,7 @@ O cancelamento entra em vigor ao final do período já pago. **Não há cancelam
 
 Nos termos do art. 49 do Código de Defesa do Consumidor, o Usuário que contratar um plano pago pela internet tem direito ao **cancelamento com reembolso integral** em até **7 (sete) dias corridos** a partir da data da primeira cobrança, desde que:
 
-- Solicite o cancelamento pelo e-mail **[E-MAIL DE CONTATO]** dentro do prazo
+- Solicite o cancelamento pelo e-mail **suporte@musly.com** dentro do prazo
 - Não tenha feito uso substancial das funcionalidades exclusivas do plano pago durante esse período
 
 O reembolso será processado em até **10 dias úteis** após a confirmação do pedido, pelo mesmo meio de pagamento utilizado na compra.
@@ -115,7 +115,7 @@ A Musly pode alterar os preços dos planos com aviso prévio mínimo de **30 dia
 
 Para qualquer solicitação relacionada a pagamentos, cancelamentos ou reembolsos:
 
-- **E-mail:** [E-MAIL DE CONTATO]
+- **E-mail:** suporte@musly.com
 - **Assunto sugerido:** "Reembolso / Cancelamento / Cobrança Indevida — [seu e-mail de conta]"
 - **Prazo de resposta:** até 5 dias úteis
 

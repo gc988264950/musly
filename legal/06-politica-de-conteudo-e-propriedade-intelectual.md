@@ -1,7 +1,7 @@
 # Política de Conteúdo e Propriedade Intelectual
 
 **Musly — Plataforma de Gestão de Estúdio Musical**
-**Última atualização:** [DATA DE VIGÊNCIA]
+**Última atualização:** 22 de abril de 2026
 
 ---
 
@@ -9,7 +9,7 @@
 
 ### 1.1 O que Pertence à Musly
 
-A plataforma Musly, incluindo seu código-fonte, design, interface, logotipos, marca, textos institucionais, funcionalidades e documentação, são de propriedade exclusiva de **[RAZÃO SOCIAL]** ou de seus licenciantes, protegidos pela **Lei de Propriedade Industrial (Lei nº 9.279/1996)** e pela **Lei de Direito Autoral (Lei nº 9.610/1998)**.
+A plataforma Musly, incluindo seu código-fonte, design, interface, logotipos, marca, textos institucionais, funcionalidades e documentação, são de propriedade exclusiva de **53.486.310 Gabriel da Cruz de Barros** ou de seus licenciantes, protegidos pela **Lei de Propriedade Industrial (Lei nº 9.279/1996)** e pela **Lei de Direito Autoral (Lei nº 9.610/1998)**.
 
 É expressamente proibido:
 - Copiar, reproduzir, modificar ou criar obras derivadas da plataforma sem autorização
@@ -71,7 +71,7 @@ Materiais de terceiros (apostilas, livros, exercícios) só podem ser inseridos 
 
 ### 3.3 Reclamações por Violação de Direitos Autorais
 
-Se você acredita que seu conteúdo foi inserido na plataforma sem autorização, envie uma notificação para **[E-MAIL DE CONTATO]** contendo:
+Se você acredita que seu conteúdo foi inserido na plataforma sem autorização, envie uma notificação para **suporte@musly.com** contendo:
 
 1. Identificação do conteúdo protegido que alega ser infringido
 2. Localização do conteúdo na plataforma (URL ou descrição)
@@ -108,12 +108,12 @@ A Musly não garante que o conteúdo gerado pela IA seja original, livre de dire
 
 O Usuário pode exportar seus dados e Conteúdo do Usuário a qualquer momento. A Musly não retém cópia dos dados exportados além dos prazos de retenção descritos na [Política de Privacidade].
 
-Para solicitar exportação completa dos dados da conta, entre em contato pelo e-mail **[E-MAIL DE CONTATO]** ou pelo [Canal LGPD].
+Para solicitar exportação completa dos dados da conta, entre em contato pelo e-mail **suporte@musly.com** ou pelo [Canal LGPD].
 
 ---
 
 ## 6. Contato
 
 Para questões de propriedade intelectual:
-- **E-mail:** [E-MAIL DE CONTATO]
+- **E-mail:** suporte@musly.com
 - **Assunto:** "Propriedade Intelectual — Musly"

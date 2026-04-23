@@ -198,10 +198,10 @@ export default function SignupForm() {
             className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-gray-300 accent-blue-600"
           />
           <label htmlFor="terms" className="text-sm text-gray-500">
-            Concordo com os{' '}
-            <a href="#" className="text-blue-600 hover:underline">Termos de Uso</a>
-            {' '}e com a{' '}
-            <a href="#" className="text-blue-600 hover:underline">Política de Privacidade</a>
+            Li e aceito os{' '}
+            <a href="/termos" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Termos de Uso</a>
+            {' '}e a{' '}
+            <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Política de Privacidade</a>
           </label>
         </div>
         {errors.agreeToTerms && (

@@ -23,7 +23,7 @@ A Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018) garante a voc�
 ## Como Exercer Seus Direitos
 
 **1. Pelo e-mail:**
-Envie sua solicitação para **[E-MAIL PARA LGPD]**
+Envie sua solicitação para **privacidade@musly.com**
 - Use o assunto: **"Direitos LGPD — [seu tipo de solicitação]"**
 - Informe o e-mail da sua conta na Musly
 - Descreva o que deseja (acesso, correção, exclusão, etc.)
@@ -41,11 +41,11 @@ Poderemos solicitar verificação de identidade antes de atender sua solicitaç�
 
 Responsável pelo tratamento dos seus dados pessoais:
 
-- **Empresa:** [RAZÃO SOCIAL]
-- **CNPJ:** [CNPJ]
-- **Encarregado (DPO):** [NOME DO DPO]
-- **E-mail:** [E-MAIL PARA LGPD]
-- **Endereço:** [ENDEREÇO COMPLETO]
+- **Empresa:** 53.486.310 Gabriel da Cruz de Barros
+- **CNPJ:** 53.486.310/0001-24
+- **Encarregado (DPO):** Gabriel da Cruz de Barros
+- **E-mail:** privacidade@musly.com
+- **Endereço:** Tatuí - SP, Brasil
 
 ---
 

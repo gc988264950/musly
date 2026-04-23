@@ -1,7 +1,7 @@
 # Política de Uso Aceitável
 
 **Musly — Plataforma de Gestão de Estúdio Musical**
-**Última atualização:** [DATA DE VIGÊNCIA]
+**Última atualização:** 22 de abril de 2026
 
 Esta Política detalha os comportamentos permitidos e proibidos na utilização da Musly, complementando os [Termos de Uso]. Ela se aplica a todos os Usuários, incluindo professores e alunos com acesso ao Portal do Aluno.
 
@@ -121,7 +121,7 @@ Em casos de encerramento por violação grave desta Política, não haverá reem
 
 Para reportar uso abusivo da plataforma por outros usuários, ou para reportar conteúdo indevido:
 
-- **E-mail:** [E-MAIL DE CONTATO]
+- **E-mail:** suporte@musly.com
 - **Assunto:** "Reporte de Violação — Uso Aceitável"
 
 Todos os relatos serão analisados e tratados com confidencialidade.

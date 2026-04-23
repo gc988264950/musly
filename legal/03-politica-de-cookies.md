@@ -1,7 +1,7 @@
 # Política de Cookies
 
 **Musly — Plataforma de Gestão de Estúdio Musical**
-**Última atualização:** [DATA DE VIGÊNCIA]
+**Última atualização:** 22 de abril de 2026
 
 ---
 
@@ -77,7 +77,7 @@ Você pode configurar seu navegador para bloquear ou excluir cookies. Instruçõ
 
 ### 5.2 Cookies da Plataforma
 
-Para gerenciar suas preferências de cookies na Musly, você pode acessar as configurações de privacidade no seu painel de conta ou entrar em contato pelo e-mail **[E-MAIL DE CONTATO]**.
+Para gerenciar suas preferências de cookies na Musly, você pode acessar as configurações de privacidade no seu painel de conta ou entrar em contato pelo e-mail **suporte@musly.com**.
 
 ---
 
@@ -96,6 +96,6 @@ Esta Política pode ser atualizada quando houver alterações em nossas prática
 ## 8. Contato
 
 Para dúvidas sobre o uso de cookies:
-- **E-mail:** [E-MAIL DE CONTATO]
+- **E-mail:** suporte@musly.com
 
 Para direitos relacionados à proteção de dados, acesse nosso [Canal LGPD].

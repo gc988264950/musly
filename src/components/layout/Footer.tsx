@@ -11,13 +11,16 @@ const footerLinks = {
   Empresa: [
     { label: 'Sobre',    href: '#'    },
     { label: 'Blog',     href: '#'    },
-    { label: 'Contato',  href: '#'    },
+    { label: 'Contato',  href: 'mailto:suporte@musly.com' },
     { label: 'FAQ',      href: '#faq' },
   ],
   Jurídico: [
-    { label: 'Política de Privacidade', href: '#' },
-    { label: 'Termos de Uso',           href: '#' },
-    { label: 'Política de Cookies',     href: '#' },
+    { label: 'Termos de Uso',              href: '/termos'                  },
+    { label: 'Política de Privacidade',    href: '/privacidade'             },
+    { label: 'Política de Cookies',        href: '/cookies'                 },
+    { label: 'Cancelamento e Reembolso',   href: '/reembolso'               },
+    { label: 'Uso Aceitável',              href: '/uso-aceitavel'           },
+    { label: 'Direitos LGPD',              href: '/lgpd'                    },
   ],
 }
 
@@ -65,9 +68,11 @@ export default function Footer() {
 
         <div className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-gray-100 pt-8 sm:flex-row">
           <p className="text-xs text-slate-400">Feito com ♪ para professores de música em todo o Brasil</p>
-          <div className="flex items-center gap-4">
-            <Link href="#" className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Privacidade</Link>
-            <Link href="#" className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Termos</Link>
+          <div className="flex flex-wrap items-center gap-4">
+            <Link href="/privacidade"   className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Privacidade</Link>
+            <Link href="/termos"        className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Termos</Link>
+            <Link href="/cookies"       className="text-xs text-slate-400 hover:text-slate-600 transition-colors">Cookies</Link>
+            <Link href="/lgpd"          className="text-xs text-slate-400 hover:text-slate-600 transition-colors">LGPD</Link>
           </div>
         </div>
       </div>
