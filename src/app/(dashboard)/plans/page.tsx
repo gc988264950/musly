@@ -125,7 +125,7 @@ function PlansContent() {
     const poll = async () => {
       attempts++
       try {
-        const res  = await fetch(`/api/subscription/activate?email=${encodeURIComponent(user.email)}`)
+        const res  = await fetch('/api/subscription/activate')
         const body = res.ok ? await res.json() : null
         const act  = body?.activation
 

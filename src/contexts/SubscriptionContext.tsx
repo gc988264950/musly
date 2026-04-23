@@ -92,7 +92,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (!user?.email) return
     const controller = new AbortController()
 
-    fetch(`/api/subscription/activate?email=${encodeURIComponent(user.email)}`, {
+    fetch('/api/subscription/activate', {
       signal: controller.signal,
     })
       .then((r) => (r.ok ? r.json() : null))

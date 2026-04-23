@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { createClient } from '@/lib/supabase/server'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,9 @@ interface ChatRequestBody {
     today:           string
   }
 }
+
+// Maximum characters accepted in a single user message
+const MAX_MESSAGE_LENGTH = 2000
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
@@ -122,12 +126,27 @@ ${paymentList}
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // Check API key
+  // ── Auth check — only authenticated teachers may call the AI ────────────────
+  // Students do not have AI access; unauthenticated callers are rejected.
+  // This prevents arbitrary callers from running up the OpenAI bill.
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
+  }
+  if (user.user_metadata?.role === 'aluno') {
+    return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 })
+  }
+
+  // Check API key before doing any heavy work
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
+    // Don't expose the variable name in the response — log server-side only
+    console.error('[AI Chat] OPENAI_API_KEY is not set.')
     return NextResponse.json(
-      { error: 'OPENAI_API_KEY não configurada. Adicione ao .env.local e reinicie o servidor.' },
-      { status: 500 }
+      { error: 'Serviço de IA temporariamente indisponível.' },
+      { status: 503 }
     )
   }
 
@@ -139,8 +158,17 @@ export async function POST(req: NextRequest) {
   }
 
   const { message, context } = body
+
   if (!message?.trim()) {
     return NextResponse.json({ error: 'Mensagem vazia.' }, { status: 400 })
+  }
+
+  // Enforce message length limit to prevent prompt injection / cost abuse
+  if (message.length > MAX_MESSAGE_LENGTH) {
+    return NextResponse.json(
+      { error: `Mensagem muito longa. Máximo ${MAX_MESSAGE_LENGTH} caracteres.` },
+      { status: 400 }
+    )
   }
 
   const openai = new OpenAI({ apiKey })
@@ -160,17 +188,17 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ text })
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Erro desconhecido'
-
-    // OpenAI specific errors
-    if (message.includes('API key')) {
-      return NextResponse.json({ error: 'Chave de API inválida ou sem permissão.' }, { status: 401 })
-    }
-    if (message.includes('quota') || message.includes('billing')) {
-      return NextResponse.json({ error: 'Limite de uso da OpenAI atingido. Verifique sua conta.' }, { status: 429 })
-    }
-
+    // Log the real error server-side; return generic messages to the client
     console.error('[AI Chat Route]', err)
-    return NextResponse.json({ error: 'Erro ao se comunicar com a OpenAI. Tente novamente.' }, { status: 500 })
+
+    const errMsg = err instanceof Error ? err.message : ''
+    if (errMsg.includes('API key') || errMsg.includes('Incorrect API key')) {
+      return NextResponse.json({ error: 'Configuração de IA inválida. Contate o suporte.' }, { status: 503 })
+    }
+    if (errMsg.includes('quota') || errMsg.includes('billing') || errMsg.includes('insufficient_quota')) {
+      return NextResponse.json({ error: 'Limite de uso da IA atingido. Tente novamente mais tarde.' }, { status: 429 })
+    }
+
+    return NextResponse.json({ error: 'Erro ao se comunicar com a IA. Tente novamente.' }, { status: 500 })
   }
 }

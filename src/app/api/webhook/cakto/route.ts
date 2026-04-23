@@ -15,9 +15,11 @@
  *   4. x-token
  *   5. authorization  (stripped of "Bearer " prefix if present)
  *
- * ─── DEBUG BYPASS ────────────────────────────────────────────────────────────
- * Set CAKTO_WEBHOOK_DEBUG_BYPASS=true in Vercel env vars to skip signature
- * validation entirely. Use ONLY for temporary debugging — never leave on.
+ * ─── SECURITY NOTE ───────────────────────────────────────────────────────────
+ * CAKTO_WEBHOOK_SECRET MUST be configured. If it is missing the webhook
+ * rejects ALL incoming requests with 500 so the misconfiguration is visible.
+ * There is intentionally no bypass mode — any bypass would allow forged
+ * payment events that grant free plans and credits.
  *
  * ─── TODO (Supabase) ─────────────────────────────────────────────────────────
  * Replace activationStore.set() with:
@@ -41,9 +43,6 @@ function adminClient() {
   )
 }
 
-// ─── Debug bypass (controlled by env var — off by default) ───────────────────
-const DEBUG_BYPASS = process.env.CAKTO_WEBHOOK_DEBUG_BYPASS === 'true'
-
 // ─── Candidate headers Cakto may use to carry the secret ─────────────────────
 const SIGNATURE_HEADERS = [
   'x-cakto-signature',
@@ -54,13 +53,21 @@ const SIGNATURE_HEADERS = [
 ] as const
 
 // ─── Constant-time string comparison (prevents timing attacks) ────────────────
+// Pads the shorter string so length differences don't leak via timing.
 function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  let diff = 0
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  const maxLen = Math.max(a.length, b.length)
+  const aPadded = a.padEnd(maxLen, '\0')
+  const bPadded = b.padEnd(maxLen, '\0')
+  let diff = a.length === b.length ? 0 : 1 // length mismatch always false
+  for (let i = 0; i < maxLen; i++) {
+    diff |= aPadded.charCodeAt(i) ^ bPadded.charCodeAt(i)
   }
   return diff === 0
+}
+
+// ─── Simple UUID v4 format check ─────────────────────────────────────────────
+function isUUID(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)
 }
 
 // ─── Truncate value for safe logging (never expose full secrets) ──────────────
@@ -72,6 +79,9 @@ function truncate(value: string, maxShow = 8): string {
 // ─── Validate the incoming request against the configured secret ──────────────
 // Cakto sends the secret inside the JSON body as { "secret": "..." }.
 // Headers are also checked as a fallback for future Cakto versions.
+//
+// SECURITY: there is no bypass mode and no "accept when secret is missing"
+// fallback. A missing secret is a misconfiguration that must be surfaced loudly.
 function validateRequest(
   req: NextRequest,
   bodySecret: string | undefined,
@@ -79,6 +89,7 @@ function validateRequest(
   valid: boolean
   reason: string
   matchedSource: string | null
+  secretMissing: boolean
   allHeaders: Record<string, string>
 } {
   const secret = CAKTO_CONFIG.webhookSecret
@@ -89,14 +100,10 @@ function validateRequest(
     allHeaders[key] = truncate(value)
   })
 
-  // ── Debug bypass ──────────────────────────────────────────────────────────
-  if (DEBUG_BYPASS) {
-    return { valid: true, reason: 'DEBUG_BYPASS=true — validation skipped', matchedSource: null, allHeaders }
-  }
-
-  // ── No secret configured → accept all (useful during initial setup) ───────
+  // ── Guard: secret MUST be configured ─────────────────────────────────────
   if (!secret) {
-    return { valid: true, reason: 'no secret configured — skipping validation', matchedSource: null, allHeaders }
+    console.error('[Cakto webhook] ❌ CAKTO_WEBHOOK_SECRET is not configured — rejecting all requests.')
+    return { valid: false, reason: 'CAKTO_WEBHOOK_SECRET not configured', matchedSource: null, secretMissing: true, allHeaders }
   }
 
   // ── 1. Check body.secret (Cakto's actual format) ──────────────────────────
@@ -107,7 +114,7 @@ function validateRequest(
       `secret_length=${secret.length}, match=${matches}`
     )
     if (matches) {
-      return { valid: true, reason: 'matched body.secret', matchedSource: 'body.secret', allHeaders }
+      return { valid: true, reason: 'matched body.secret', matchedSource: 'body.secret', secretMissing: false, allHeaders }
     }
   } else {
     console.info('[Cakto webhook] body.secret: (absent)')
@@ -129,11 +136,11 @@ function validateRequest(
       `secret_length=${secret.length}, match=${matches}`
     )
     if (matches) {
-      return { valid: true, reason: `matched header "${headerName}"`, matchedSource: headerName, allHeaders }
+      return { valid: true, reason: `matched header "${headerName}"`, matchedSource: headerName, secretMissing: false, allHeaders }
     }
   }
 
-  return { valid: false, reason: 'secret not found in body.secret or any known header', matchedSource: null, allHeaders }
+  return { valid: false, reason: 'secret not found in body.secret or any known header', matchedSource: null, secretMissing: false, allHeaders }
 }
 
 // ─── Shared: resolve userId from payload ─────────────────────────────────────
@@ -143,8 +150,17 @@ async function resolveUserId(
   email: string,
   externalReference: string | undefined,
 ): Promise<string | null> {
-  // Prefer explicit userId passed in checkout URL ?ref=<userId>
-  if (externalReference) return externalReference
+  // Prefer explicit userId passed in checkout URL ?ref=<userId>.
+  // SECURITY: validate format before trusting as a DB key — prevents an
+  // attacker from crafting a checkout URL with an arbitrary string as ref.
+  if (externalReference && isUUID(externalReference)) {
+    // Verify the UUID actually corresponds to a real user
+    const { data: { user }, error } = await admin.auth.admin.getUserById(externalReference)
+    if (!error && user) return user.id
+    console.warn(`[Cakto webhook] external_reference "${externalReference}" is a valid UUID but no matching user found — falling back to email.`)
+  } else if (externalReference) {
+    console.warn(`[Cakto webhook] external_reference "${externalReference}" is not a valid UUID — ignoring, falling back to email.`)
+  }
 
   // Fall back to email lookup
   const { data } = await admin.auth.admin.listUsers({ perPage: 1000 })
@@ -266,6 +282,18 @@ async function handlePlanPurchase(
   const expiresAt   = computeExpiry(planId, new Date(activatedAt))
   const admin       = adminClient()
 
+  // ── Idempotency: skip if this order ID was already recorded ────────────────
+  const { data: existingSub } = await admin
+    .from('subscriptions')
+    .select('cakto_order_id')
+    .eq('cakto_order_id', id)
+    .maybeSingle()
+
+  if (existingSub) {
+    console.info(`[Cakto webhook] ⚠️ Plan order "${id}" already processed — skipping duplicate.`)
+    return NextResponse.json({ ok: true, skipped: 'duplicate_order', orderId: id })
+  }
+
   const userId = await resolveUserId(admin, email, external_reference)
 
   if (!userId) {
@@ -351,11 +379,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   console.info(
     `[Cakto webhook] Secret configured: ${secret
       ? `YES (${secret.length} chars, starts "${secret.slice(0, 4)}…")`
-      : 'NO — validation will be skipped'
+      : 'NO ⚠️ — request will be rejected'
     }`
-  )
-  console.info(
-    `[Cakto webhook] Debug bypass: ${DEBUG_BYPASS ? 'ENABLED ⚠️' : 'disabled'}`
   )
 
   // ── 2. Read raw body ─────────────────────────────────────────────────────────
@@ -379,13 +404,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   // ── 4. Log headers + validate ─────────────────────────────────────────────
-  const { valid, reason, matchedSource, allHeaders } = validateRequest(req, payload.secret)
+  const { valid, reason, matchedSource, secretMissing, allHeaders } = validateRequest(req, payload.secret)
 
   console.info(`[Cakto webhook] All headers received: ${JSON.stringify(allHeaders)}`)
 
   if (!valid) {
     console.warn(`[Cakto webhook] ❌ Rejected — ${reason}`)
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+    // Return 500 for misconfiguration so operators notice; 401 for bad secret
+    const status = secretMissing ? 500 : 401
+    return NextResponse.json({ error: secretMissing ? 'Webhook secret not configured on server' : 'Invalid signature' }, { status })
   }
 
   console.info(`[Cakto webhook] ✅ Accepted — ${reason} (source: ${matchedSource ?? 'none/bypass'})`)
