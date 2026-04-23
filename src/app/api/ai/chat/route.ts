@@ -185,24 +185,27 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 4. Load user's plan from the database ─────────────────────────────────
-  // RLS guarantees the user can only read their own subscription row.
-  const { data: sub } = await supabase
+  const { data: sub, error: subErr } = await supabase
     .from('subscriptions')
     .select('plan_id')
     .eq('user_id', user.id)
     .maybeSingle()
 
-  const planId = ((sub?.plan_id ?? 'free') as PlanId)
+  if (subErr) console.warn('[AI Chat] subscriptions read error:', subErr.code, subErr.message)
+
+  const planId       = ((sub?.plan_id ?? 'free') as PlanId)
   const totalMonthly = PLAN_CREDITS[planId] ?? 10
 
   // ── 5. Load current credit state from the database ────────────────────────
   const month = currentMonth()
-  const { data: usage } = await supabase
+  const { data: usage, error: usageReadErr } = await supabase
     .from('ai_credit_usage')
     .select('credits_used, extra_credits')
     .eq('user_id', user.id)
     .eq('month', month)
     .maybeSingle()
+
+  if (usageReadErr) console.warn('[AI Chat] ai_credit_usage read error:', usageReadErr.code, usageReadErr.message)
 
   const creditsUsedNow   = usage?.credits_used  ?? 0
   const extraCreditsNow  = usage?.extra_credits ?? 0
@@ -210,12 +213,13 @@ export async function POST(req: NextRequest) {
   const totalAvailable   = monthlyRemaining + extraCreditsNow
 
   // ── 6. Classify the prompt and determine cost (server-authoritative) ──────
-  // The client never decides or reports the cost — this is always computed
-  // server-side from the raw message text.
   const cost = classifyPrompt(message)
+
+  console.log(`[AI Chat] user=${user.id} plan=${planId} month=${month} used=${creditsUsedNow}/${totalMonthly} extra=${extraCreditsNow} cost=${cost} available=${totalAvailable}`)
 
   // ── 7. Reject if insufficient credits ────────────────────────────────────
   if (totalAvailable < cost) {
+    console.log(`[AI Chat] BLOCKED — insufficient credits (available=${totalAvailable} cost=${cost})`)
     return NextResponse.json(
       {
         error: 'Créditos insuficientes. Recarregue seus créditos para continuar usando a IA.',
@@ -264,9 +268,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Erro ao se comunicar com a IA. Tente novamente.' }, { status: 500 })
   }
 
-  // ── 10. Deduct credits server-side (client cannot influence this) ──────────
-  // Monthly credits are consumed first; extra (purchased) credits are used only
-  // after the monthly allowance is exhausted.
+  // ── 10. Deduct credits server-side ────────────────────────────────────────
+  // Monthly credits consumed first; extra (purchased) credits used only after
+  // monthly allowance is exhausted.
   let newUsed  = creditsUsedNow
   let newExtra = extraCreditsNow
 
@@ -278,31 +282,69 @@ export async function POST(req: NextRequest) {
     newExtra = Math.max(0, extraCreditsNow - fromExtra)
   }
 
+  console.log(`[AI Chat] Deducting ${cost} credit(s): used ${creditsUsedNow}→${newUsed}, extra ${extraCreditsNow}→${newExtra}`)
+
+  let deductionOk = false
+
   if (usage) {
-    await supabase
+    // Row exists — update it. Try with updated_at first; fall back without if column absent.
+    const { error: updErr } = await supabase
       .from('ai_credit_usage')
       .update({ credits_used: newUsed, extra_credits: newExtra, updated_at: new Date().toISOString() })
       .eq('user_id', user.id)
       .eq('month', month)
+
+    if (updErr) {
+      console.error('[AI Chat] UPDATE (with updated_at) failed:', updErr.code, updErr.message)
+      // Retry without updated_at in case the column is not in the schema
+      const { error: updErr2 } = await supabase
+        .from('ai_credit_usage')
+        .update({ credits_used: newUsed, extra_credits: newExtra })
+        .eq('user_id', user.id)
+        .eq('month', month)
+
+      if (updErr2) {
+        console.error('[AI Chat] UPDATE (fallback) also failed:', updErr2.code, updErr2.message)
+      } else {
+        deductionOk = true
+        console.log('[AI Chat] UPDATE succeeded via fallback (no updated_at)')
+      }
+    } else {
+      deductionOk = true
+      console.log('[AI Chat] UPDATE succeeded')
+    }
   } else {
-    await supabase
+    // No row yet — insert one.
+    const { error: insErr } = await supabase
       .from('ai_credit_usage')
       .insert({ user_id: user.id, month, credits_used: newUsed, extra_credits: newExtra })
+
+    if (insErr) {
+      console.error('[AI Chat] INSERT failed:', insErr.code, insErr.message)
+    } else {
+      deductionOk = true
+      console.log('[AI Chat] INSERT succeeded (first usage this month)')
+    }
   }
 
-  // Append an audit entry (fire-and-forget — non-fatal if it fails)
-  void supabase.from('credit_transactions').insert({
+  if (!deductionOk) {
+    console.error(`[AI Chat] CREDIT DEDUCTION FAILED for user=${user.id}. AI response delivered but credits were NOT deducted.`)
+  }
+
+  // Audit entry — non-fatal, log failures but don't block response
+  const { error: txErr } = await supabase.from('credit_transactions').insert({
     user_id:     user.id,
     type:        'extra_usage',
     amount:      -cost,
     description: `Uso de ${cost} crédito(s) de IA`,
   })
+  if (txErr) console.warn('[AI Chat] credit_transactions insert failed:', txErr.code, txErr.message)
 
   // ── 11. Return response with authoritative credit info ─────────────────────
-  // The client uses creditsRemaining and creditsUsed to update its local
-  // display — it never computes or reports these values itself.
   const newMonthlyRemaining = Math.max(0, totalMonthly - newUsed)
   const creditsRemaining    = newMonthlyRemaining + newExtra
+
+  console.log(`[AI Chat] Done — creditsUsed=${cost} creditsRemaining=${creditsRemaining} deductionOk=${deductionOk}`)
 
   return NextResponse.json({
     text:             aiText,
