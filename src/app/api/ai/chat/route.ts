@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
+import { checkRateLimit, AI_CHAT_LIMIT } from '@/lib/rateLimit'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -137,6 +138,24 @@ export async function POST(req: NextRequest) {
   }
   if (user.user_metadata?.role === 'aluno') {
     return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 })
+  }
+
+  // ── Rate limiting: 10 requests / 60 s per user ───────────────────────────
+  const rl = checkRateLimit(user.id, AI_CHAT_LIMIT)
+  if (!rl.allowed) {
+    const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000)
+    return NextResponse.json(
+      { error: 'Muitas requisições. Aguarde um momento e tente novamente.' },
+      {
+        status:  429,
+        headers: {
+          'Retry-After':          String(retryAfterSec),
+          'X-RateLimit-Limit':    String(AI_CHAT_LIMIT.maxRequests),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset':    String(Math.ceil(rl.resetAt / 1000)),
+        },
+      },
+    )
   }
 
   // Check API key before doing any heavy work
