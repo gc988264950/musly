@@ -27,42 +27,70 @@ export function useStudents() {
     load()
   }, [load])
 
+  /**
+   * Creates a student record.
+   * - Applies an optimistic update so the UI responds immediately.
+   * - Awaits the DB write and rolls back if it fails.
+   * - Throws on DB error so the caller (handleSave) can show a message.
+   */
   const create = useCallback(
-    (data: Omit<CreateStudentInput, 'teacherId'>): Student => {
+    async (data: Omit<CreateStudentInput, 'teacherId'>): Promise<Student> => {
       if (!user) throw new Error('Usuário não autenticado.')
+
       const student = db.buildStudent({ ...data, teacherId: user.id })
+
+      // Optimistic: add to list immediately for snappy UX
       setStudents((prev) =>
         [...prev, student].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
       )
-      db.createStudent(student).catch(() => load())
-      return student
+
+      try {
+        await db.createStudent(student)
+        return student
+      } catch (err) {
+        console.error('[useStudents] create failed — rolling back optimistic update:', err)
+        // Roll back so the student doesn't appear in the list without being saved
+        setStudents((prev) => prev.filter((s) => s.id !== student.id))
+        throw err   // propagate so the form can show the error
+      }
     },
-    [user, load]
+    [user],
   )
 
   const update = useCallback(
-    (id: string, data: UpdateStudentInput): Student => {
+    async (id: string, data: UpdateStudentInput): Promise<Student> => {
       const existing = students.find((s) => s.id === id)
       if (!existing) throw new Error('Aluno não encontrado.')
+
       const updated = db.applyUpdate(existing, data)
+
       setStudents((prev) =>
         prev
           .map((s) => (s.id === id ? updated : s))
           .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
       )
-      db.updateStudent(updated).catch(() => load())
-      return updated
+
+      try {
+        await db.updateStudent(updated)
+        return updated
+      } catch (err) {
+        console.error('[useStudents] update failed — rolling back:', err)
+        setStudents((prev) => prev.map((s) => (s.id === id ? existing : s)))
+        throw err
+      }
     },
-    [students, load]
+    [students],
   )
 
   const remove = useCallback(
     (id: string): void => {
       setStudents((prev) => prev.filter((s) => s.id !== id))
-      // ON DELETE CASCADE in DB handles lessons, notes, progress, etc.
-      db.deleteStudent(id).catch(() => load())
+      db.deleteStudent(id).catch((err) => {
+        console.error('[useStudents] delete failed:', err)
+        load()
+      })
     },
-    [load]
+    [load],
   )
 
   return { students, loading, load, create, update, remove }

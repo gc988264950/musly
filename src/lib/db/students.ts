@@ -48,10 +48,11 @@ function toRow(s: Student) {
     schedule_days:     s.scheduleDays,
     schedule_time:     s.scheduleTime,
     schedule_duration: s.scheduleDuration,
-    contract_duration:  s.contractDuration,
-    contract_start_date: s.contractStartDate,
-    contract_end_date:  s.contractEndDate,
-    created_at:         s.createdAt,
+    contract_duration: s.contractDuration,
+    // contract_start_date is tracked in UI state only until the DB column is added.
+    // Run: ALTER TABLE students ADD COLUMN IF NOT EXISTS contract_start_date text DEFAULT '';
+    contract_end_date: s.contractEndDate,
+    created_at:        s.createdAt,
     updated_at:        s.updatedAt,
   }
 }
@@ -85,7 +86,10 @@ export async function getStudentById(id: string): Promise<Student | null> {
 export async function createStudent(student: Student): Promise<void> {
   const supabase = createClient()
   const { error } = await supabase.from('students').insert(toRow(student))
-  if (error) throw error
+  if (error) {
+    console.error('[createStudent] DB error:', error.code, error.message)
+    throw error
+  }
 }
 
 export async function updateStudent(student: Student): Promise<void> {
