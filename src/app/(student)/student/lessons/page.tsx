@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStudentById } from '@/lib/db/students'
-import { getLessonsByStudent, updateHomeworkCompleted } from '@/lib/db/lessons'
+import { getLessonsByStudent } from '@/lib/db/lessons'
 import { cn } from '@/lib/utils'
 import type { Lesson, LessonStatus, Student } from '@/lib/db/types'
 
@@ -56,12 +56,17 @@ export default function StudentLessonsPage() {
     if (!lesson.homework) return
     setTogglingId(lesson.id)
     const next = !lesson.homeworkCompleted
-    // optimistic update
+    // Optimistic update
     setLessons((prev) => prev.map((l) => l.id === lesson.id ? { ...l, homeworkCompleted: next } : l))
     try {
-      await updateHomeworkCompleted(lesson.id, next)
+      const res = await fetch('/api/student/homework', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lessonId: lesson.id, completed: next }),
+      })
+      if (!res.ok) throw new Error('update failed')
     } catch {
-      // rollback
+      // Rollback on error
       setLessons((prev) => prev.map((l) => l.id === lesson.id ? { ...l, homeworkCompleted: !next } : l))
     } finally {
       setTogglingId(null)

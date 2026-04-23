@@ -22,9 +22,10 @@ function fromRow(r: any): Student {
     scheduleDays:     r.schedule_days    ?? [],
     scheduleTime:     r.schedule_time    ?? '',
     scheduleDuration: r.schedule_duration ?? 0,
-    contractDuration: r.contract_duration ?? null,
-    contractEndDate:  r.contract_end_date ?? '',
-    createdAt:        r.created_at,
+    contractDuration:  r.contract_duration  ?? null,
+    contractStartDate: r.contract_start_date ?? '',
+    contractEndDate:   r.contract_end_date   ?? '',
+    createdAt:         r.created_at,
     updatedAt:        r.updated_at,
   }
 }
@@ -47,9 +48,10 @@ function toRow(s: Student) {
     schedule_days:     s.scheduleDays,
     schedule_time:     s.scheduleTime,
     schedule_duration: s.scheduleDuration,
-    contract_duration: s.contractDuration,
-    contract_end_date: s.contractEndDate,
-    created_at:        s.createdAt,
+    contract_duration:  s.contractDuration,
+    contract_start_date: s.contractStartDate,
+    contract_end_date:  s.contractEndDate,
+    created_at:         s.createdAt,
     updated_at:        s.updatedAt,
   }
 }
@@ -119,8 +121,9 @@ export function buildStudent(
     scheduleDays:     data.scheduleDays     ?? [],
     scheduleTime:     data.scheduleTime     ?? '',
     scheduleDuration: data.scheduleDuration ?? 0,
-    contractDuration: data.contractDuration ?? null,
-    contractEndDate:  data.contractEndDate  ?? '',
+    contractDuration:  data.contractDuration  ?? null,
+    contractStartDate: data.contractStartDate ?? '',
+    contractEndDate:   data.contractEndDate   ?? '',
     createdAt: now,
     updatedAt: now,
   }

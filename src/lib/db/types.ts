@@ -61,7 +61,8 @@ export interface Student {
   scheduleTime: string          // "HH:MM"; '' when not set
   scheduleDuration: number      // minutes; 0 when not set
   contractDuration: ContractDuration | null
-  contractEndDate: string       // "YYYY-MM-DD"; '' when not set
+  contractStartDate: string     // "YYYY-MM-DD"; '' when not set (real contract start, may be retroactive)
+  contractEndDate: string       // "YYYY-MM-DD"; '' when not set (derived from start + duration)
   createdAt: string
   updatedAt: string
 }

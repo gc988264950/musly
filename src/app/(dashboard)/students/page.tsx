@@ -32,8 +32,10 @@ interface FormState {
   name: string
   instrument: string
   level: StudentLevel
+  // Portal access (new students): only used when createPortal = true
+  createPortal: boolean
   email: string
-  password: string  // new students only; '' = no portal access
+  password: string
   phone: string
   notes: string
   objectives: string
@@ -46,12 +48,18 @@ interface FormState {
   scheduleTime: string
   scheduleDuration: number
   contractDuration: ContractDuration | null
+  contractStartDate: string  // "YYYY-MM-DD" — real start, may be retroactive
+}
+
+function todayISO() {
+  return new Date().toISOString().split('T')[0]
 }
 
 const EMPTY_FORM: FormState = {
   name: '',
   instrument: '',
   level: 'Iniciante',
+  createPortal: false,
   email: '',
   password: '',
   phone: '',
@@ -65,6 +73,19 @@ const EMPTY_FORM: FormState = {
   scheduleTime: '09:00',
   scheduleDuration: 60,
   contractDuration: null,
+  contractStartDate: todayISO(),
+}
+
+/** Generates a musly.com login identifier from the student's name */
+function suggestEmail(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')   // strip accents
+    .replace(/\s+/g, '.')              // spaces → dots
+    .replace(/[^a-z0-9.]/g, '')        // strip non-alphanumeric
+    + '@musly.com'
 }
 
 function validateForm(f: FormState, isNew: boolean): Record<string, string> {
@@ -72,12 +93,13 @@ function validateForm(f: FormState, isNew: boolean): Record<string, string> {
   if (!f.name.trim() || f.name.trim().length < 2)
     e.name = 'O nome deve ter pelo menos 2 caracteres'
   if (!f.instrument) e.instrument = 'Selecione um instrumento'
-  if (isNew) {
-    if (!f.email) e.email = 'O e-mail é obrigatório para criar o acesso do aluno'
+  // Portal credentials only required when teacher explicitly enables portal access
+  if (isNew && f.createPortal) {
+    if (!f.email) e.email = 'Informe o e-mail de acesso do aluno'
     else if (!/\S+@\S+\.\S+/.test(f.email)) e.email = 'Informe um e-mail válido'
-    if (!f.password) e.password = 'A senha é obrigatória'
+    if (!f.password) e.password = 'Informe uma senha para o aluno'
     else if (f.password.length < 6) e.password = 'A senha deve ter pelo menos 6 caracteres'
-  } else if (f.email && !/\S+@\S+\.\S+/.test(f.email)) {
+  } else if (!isNew && f.email && !/\S+@\S+\.\S+/.test(f.email)) {
     e.email = 'Informe um e-mail válido'
   }
   return e
@@ -284,6 +306,17 @@ interface StudentFormProps {
 function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
   const [showPassword, setShowPassword] = useState(false)
 
+  // When portal is toggled ON and email is still empty, suggest a musly.com address
+  function handlePortalToggle(enable: boolean) {
+    const patch: Partial<FormState> = { createPortal: enable }
+    if (enable && !form.email && form.name.trim()) {
+      patch.email = suggestEmail(form.name)
+    }
+    onChange(patch)
+  }
+
+  const inputCls = 'block w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20'
+
   return (
     <div className="space-y-4">
       {/* ── Basic info ── */}
@@ -309,9 +342,7 @@ function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
             )}
           >
             <option value="">Selecione…</option>
-            {INSTRUMENTS.map((i) => (
-              <option key={i} value={i}>{i}</option>
-            ))}
+            {INSTRUMENTS.map((i) => <option key={i} value={i}>{i}</option>)}
           </select>
           {errors.instrument && <p className="mt-1.5 text-xs text-red-600">{errors.instrument}</p>}
         </div>
@@ -320,74 +351,113 @@ function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
           <select
             value={form.level}
             onChange={(e) => onChange({ level: e.target.value as StudentLevel })}
-            className="block w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm shadow-sm transition-colors focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className={inputCls}
           >
             {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
           </select>
         </div>
       </div>
 
-      <Input
-        label="Telefone"
-        type="tel"
-        placeholder="(11) 99999-9999"
-        value={form.phone}
-        onChange={(e) => onChange({ phone: e.target.value })}
-      />
+      <Input label="Telefone" type="tel" placeholder="(11) 99999-9999"
+        value={form.phone} onChange={(e) => onChange({ phone: e.target.value })} />
 
-      <Input
-        label="Link Google Meet"
-        type="url"
-        placeholder="https://meet.google.com/xxx-xxxx-xxx"
-        value={form.meetLink}
-        onChange={(e) => onChange({ meetLink: e.target.value })}
-      />
+      <Input label="Link Google Meet" type="url" placeholder="https://meet.google.com/xxx-xxxx-xxx"
+        value={form.meetLink} onChange={(e) => onChange({ meetLink: e.target.value })} />
 
-      {/* ── Access section (creation only) ── */}
-      <div className="rounded-xl border border-[#b0d2ff]/50 bg-[#eef5ff] p-4 space-y-3">
+      {/* ── Portal access ── */}
+      <div className="rounded-xl border border-gray-200 p-4 space-y-3">
         <div className="flex items-center gap-2">
-          <KeyRound className="h-4 w-4 text-[#1a7cfa]" />
-          <span className="text-sm font-semibold text-[#1057b0]">
-            Acesso ao portal do aluno{isNew ? ' *' : ''}
-          </span>
+          <KeyRound className="h-4 w-4 text-gray-500" />
+          <span className="text-sm font-semibold text-gray-700">Portal do Aluno</span>
         </div>
-        {isNew && (
-          <p className="text-xs text-[#1057b0]/70">
-            O aluno receberá essas credenciais para acessar o portal em qualquer dispositivo.
-          </p>
-        )}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Input
-            label={isNew ? 'E-mail *' : 'E-mail'}
-            type="email"
-            placeholder="aluno@email.com"
+
+        {isNew ? (
+          <>
+            <p className="text-xs text-gray-500">
+              Quer que este aluno tenha acesso ao Portal do Aluno?
+            </p>
+            <div className="flex gap-2">
+              {[{ v: true, label: 'Sim' }, { v: false, label: 'Não' }].map(({ v, label }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => handlePortalToggle(v)}
+                  className={cn(
+                    'rounded-lg px-5 py-2 text-sm font-semibold transition-all',
+                    form.createPortal === v
+                      ? v ? 'bg-[#1a7cfa] text-white shadow-sm' : 'bg-gray-800 text-white'
+                      : 'border border-gray-200 text-gray-500 hover:border-gray-400'
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {form.createPortal && (
+              <div className="space-y-3 pt-1">
+                <p className="text-xs text-[#1057b0]/80 bg-[#eef5ff] rounded-lg px-3 py-2">
+                  As credenciais abaixo serão usadas pelo aluno para acessar o portal.
+                  Você pode personalizar o identificador de acesso.
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-600">
+                      Identificador de acesso *
+                    </label>
+                    <input
+                      type="email"
+                      placeholder={form.name ? suggestEmail(form.name) : 'nome@musly.com'}
+                      value={form.email}
+                      onChange={(e) => onChange({ email: e.target.value })}
+                      className={cn(inputCls, errors.email && 'border-red-400 focus:border-red-500 focus:ring-red-500/20')}
+                    />
+                    {errors.email
+                      ? <p className="mt-1 text-xs text-red-600">{errors.email}</p>
+                      : <p className="mt-1 text-xs text-gray-400">Ex: nome.sobrenome@musly.com</p>
+                    }
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-gray-600">Senha *</label>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="Mín. 6 caracteres"
+                        value={form.password}
+                        onChange={(e) => onChange({ password: e.target.value })}
+                        className={cn(inputCls, 'pr-10', errors.password && 'border-red-400')}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {!form.createPortal && (
+              <p className="text-xs text-gray-400">
+                O aluno não terá acesso ao portal agora. Você pode criar o acesso depois na página do aluno.
+              </p>
+            )}
+          </>
+        ) : (
+          /* Edit mode — just show the email field */
+          <Input label="E-mail" type="email" placeholder="aluno@email.com"
             value={form.email}
             onChange={(e) => onChange({ email: e.target.value })}
             error={errors.email}
           />
-          {isNew && (
-            <Input
-              label="Senha *"
-              type={showPassword ? 'text' : 'password'}
-              placeholder="Mín. 6 caracteres"
-              value={form.password}
-              onChange={(e) => onChange({ password: e.target.value })}
-              error={errors.password}
-              rightElement={
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              }
-            />
-          )}
-        </div>
+        )}
       </div>
 
-      {/* ── Recurring schedule ── */}
+      {/* ── Recurring schedule & contract ── */}
       <div className="rounded-xl border border-gray-200 p-4 space-y-4">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-gray-500" />
@@ -425,23 +495,32 @@ function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-gray-600">Horário</label>
-            <input
-              type="time"
-              value={form.scheduleTime}
+            <input type="time" value={form.scheduleTime}
               onChange={(e) => onChange({ scheduleTime: e.target.value })}
-              className="block w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            />
+              className={inputCls} />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-gray-600">Duração</label>
-            <select
-              value={form.scheduleDuration}
+            <select value={form.scheduleDuration}
               onChange={(e) => onChange({ scheduleDuration: Number(e.target.value) })}
-              className="block w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            >
+              className={inputCls}>
               {LESSON_DURATIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </div>
+        </div>
+
+        {/* Contract start date */}
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-gray-600">Início do contrato</label>
+          <input
+            type="date"
+            value={form.contractStartDate}
+            onChange={(e) => onChange({ contractStartDate: e.target.value })}
+            className={inputCls}
+          />
+          <p className="mt-1 text-xs text-gray-400">
+            Pode ser uma data retroativa — as aulas serão geradas a partir dessa data.
+          </p>
         </div>
 
         {/* Contract duration */}
@@ -476,15 +555,22 @@ function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
               </button>
             ))}
           </div>
-          {form.scheduleDays.length > 0 && form.contractDuration && (
-            <p className="mt-1.5 text-xs text-gray-400">
-              As aulas serão geradas automaticamente até {(() => {
-                const end = new Date()
-                end.setMonth(end.getMonth() + form.contractDuration)
-                end.setDate(end.getDate() - 1)
-                return end.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })
-              })()}.
-            </p>
+
+          {/* Live preview of what will be generated */}
+          {form.scheduleDays.length > 0 && form.contractDuration && form.contractStartDate && (
+            <div className="mt-2 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+              <p className="text-xs text-blue-700">
+                <span className="font-semibold">Aulas geradas de</span>{' '}
+                {new Date(form.contractStartDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}{' '}
+                <span className="font-semibold">até</span>{' '}
+                {(() => {
+                  const end = new Date(form.contractStartDate + 'T00:00:00')
+                  end.setMonth(end.getMonth() + form.contractDuration!)
+                  end.setDate(end.getDate() - 1)
+                  return end.toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })
+                })()}.
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -498,10 +584,8 @@ function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
               key={color}
               type="button"
               onClick={() => onChange({ color })}
-              className={cn(
-                'h-7 w-7 rounded-full transition-all',
-                form.color === color ? 'ring-2 ring-offset-2 scale-110' : 'hover:scale-105'
-              )}
+              className={cn('h-7 w-7 rounded-full transition-all',
+                form.color === color ? 'ring-2 ring-offset-2 scale-110' : 'hover:scale-105')}
               style={{ backgroundColor: color }}
               aria-label={`Cor ${color}`}
             />
@@ -523,12 +607,9 @@ function StudentForm({ form, errors, onChange, isNew }: StudentFormProps) {
 
       <label className="flex cursor-pointer items-center gap-3">
         <div className="relative">
-          <input
-            type="checkbox"
-            className="sr-only"
+          <input type="checkbox" className="sr-only"
             checked={form.needsAttention}
-            onChange={(e) => onChange({ needsAttention: e.target.checked })}
-          />
+            onChange={(e) => onChange({ needsAttention: e.target.checked })} />
           <div className={cn('h-5 w-9 rounded-full transition-colors', form.needsAttention ? 'bg-amber-500' : 'bg-gray-200')}>
             <div className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform', form.needsAttention ? 'left-4' : 'left-0.5')} />
           </div>
@@ -568,10 +649,12 @@ export default function StudentsPage() {
     email: string
     password: string
     lessonsCreated: number
+    contractStartDate: string
     contractEndDate: string
     portalUrl: string
+    accountError: string
   } | null>(null)
-  const [copied, setCopied] = useState<'email' | 'password' | null>(null)
+  const [copied, setCopied] = useState<'email' | 'password' | 'all' | null>(null)
 
   // Delete
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null)
@@ -598,22 +681,24 @@ export default function StudentsPage() {
   const openEdit = useCallback((student: Student) => {
     setEditing(student)
     setForm({
-      name: student.name,
-      instrument: student.instrument,
-      level: student.level,
-      email: student.email,
-      password: '', // don't prefill password on edit
-      phone: student.phone,
-      notes: student.notes,
-      objectives: student.objectives,
-      nextSteps: student.nextSteps,
-      color: student.color || STUDENT_COLORS[0],
-      needsAttention: student.needsAttention || false,
-      meetLink: student.meetLink || '',
-      scheduleDays: student.scheduleDays || [],
-      scheduleTime: student.scheduleTime || '09:00',
+      name:             student.name,
+      instrument:       student.instrument,
+      level:            student.level,
+      createPortal:     false,   // not applicable on edit
+      email:            student.email,
+      password:         '',      // never prefill on edit
+      phone:            student.phone,
+      notes:            student.notes,
+      objectives:       student.objectives,
+      nextSteps:        student.nextSteps,
+      color:            student.color || STUDENT_COLORS[0],
+      needsAttention:   student.needsAttention || false,
+      meetLink:         student.meetLink || '',
+      scheduleDays:     student.scheduleDays || [],
+      scheduleTime:     student.scheduleTime || '09:00',
       scheduleDuration: student.scheduleDuration || 60,
       contractDuration: student.contractDuration || null,
+      contractStartDate: student.contractStartDate || todayISO(),
     })
     setErrors({})
     setModalOpen(true)
@@ -631,107 +716,114 @@ export default function StudentsPage() {
     setErrors({})
     setSaving(true)
     try {
-      const today = new Date()
+      // Use the real contract start date entered by the teacher (may be retroactive)
+      const contractStart = form.contractStartDate
+        ? new Date(form.contractStartDate + 'T00:00:00')
+        : new Date()
       const contractEndDate = form.contractDuration
-        ? calcContractEndDate(today, form.contractDuration)
+        ? calcContractEndDate(contractStart, form.contractDuration)
         : ''
 
+      const portalEmail = isNew && form.createPortal ? form.email.trim() : form.email.trim()
+
       const payload = {
-        name: form.name.trim(),
-        instrument: form.instrument,
-        level: form.level,
-        email: form.email.trim(),
-        phone: form.phone.trim(),
-        notes: form.notes.trim(),
-        objectives: form.objectives.trim(),
-        nextSteps: form.nextSteps.trim(),
-        color: form.color,
-        needsAttention: form.needsAttention,
-        meetLink: form.meetLink.trim(),
-        scheduleDays: form.scheduleDays,
-        scheduleTime: form.scheduleTime,
+        name:             form.name.trim(),
+        instrument:       form.instrument,
+        level:            form.level,
+        email:            portalEmail,
+        phone:            form.phone.trim(),
+        notes:            form.notes.trim(),
+        objectives:       form.objectives.trim(),
+        nextSteps:        form.nextSteps.trim(),
+        color:            form.color,
+        needsAttention:   form.needsAttention,
+        meetLink:         form.meetLink.trim(),
+        scheduleDays:     form.scheduleDays,
+        scheduleTime:     form.scheduleTime,
         scheduleDuration: form.scheduleDuration,
         contractDuration: form.contractDuration,
+        contractStartDate: form.contractStartDate,
         contractEndDate,
       }
 
       if (editing) {
         update(editing.id, payload)
         setModalOpen(false)
-      } else {
-        // 1. Create student record
-        const student = create(payload)
+        return
+      }
 
-        // 2. Auto-create portal account via API
-        let accountError = ''
+      // ── New student ─────────────────────────────────────────────────────────
+
+      // 1. Create student record
+      const student = create(payload)
+
+      // 2. Create portal account (only if teacher opted in)
+      let accountError = ''
+      if (user && form.createPortal && form.email.trim() && form.password) {
         try {
-          if (user && form.email.trim() && form.password) {
-            const nameParts = form.name.trim().split(' ')
-            const res = await fetch('/api/admin/create-student', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                email:           form.email.trim(),
-                password:        form.password,
-                firstName:       nameParts[0] ?? form.name.trim(),
-                lastName:        nameParts.slice(1).join(' ') || '',
-                linkedStudentId: student.id,
-                teacherId:       user.id,
-              }),
-            })
-            if (!res.ok) {
-              const body = await res.json().catch(() => ({}))
-              accountError = body.error ?? 'Erro ao criar conta do aluno.'
-            }
+          const nameParts = form.name.trim().split(' ')
+          const res = await fetch('/api/admin/create-student', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email:           form.email.trim(),
+              password:        form.password,
+              firstName:       nameParts[0] ?? form.name.trim(),
+              lastName:        nameParts.slice(1).join(' ') || '',
+              linkedStudentId: student.id,
+              teacherId:       user.id,
+            }),
+          })
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}))
+            accountError = body.error ?? 'Erro ao criar conta do aluno.'
           }
         } catch (err) {
           accountError = err instanceof Error ? err.message : 'Erro ao criar conta do aluno.'
         }
-
-        // 3. Generate recurring lessons
-        let lessonsCreated = 0
-        if (
-          user &&
-          form.scheduleDays.length > 0 &&
-          form.scheduleTime &&
-          form.scheduleDuration > 0 &&
-          contractEndDate
-        ) {
-          const scheduleGroupId = crypto.randomUUID()
-          const builtLessons = buildRecurringLessons({
-            teacherId: user.id,
-            studentId: student.id,
-            instrument: form.instrument,
-            days: form.scheduleDays,
-            time: form.scheduleTime,
-            duration: form.scheduleDuration,
-            startDate: today.toISOString().split('T')[0],
-            endDate: contractEndDate,
-            scheduleGroupId,
-          })
-          lessonsCreated = builtLessons.length
-          createMany(builtLessons)
-        }
-
-        addNotification('student_created', `Aluno "${form.name.trim()}" cadastrado com sucesso.`, student.id)
-        refreshSubscription()
-        setModalOpen(false)
-
-        // 4. Show success modal with credentials
-        setSuccessInfo({
-          studentName: form.name.trim(),
-          email: form.email.trim(),
-          password: form.password,
-          lessonsCreated,
-          contractEndDate,
-          portalUrl: `${typeof window !== 'undefined' ? window.location.origin : ''}/student-login`,
-        })
-
-        if (accountError) {
-          // Surface account error in success modal description
-          setSuccessInfo((prev) => prev ? { ...prev, email: `${prev.email} (erro: ${accountError})` } : null)
-        }
       }
+
+      // 3. Generate recurring lessons from the real contract start date
+      let lessonsCreated = 0
+      if (
+        user &&
+        form.scheduleDays.length > 0 &&
+        form.scheduleTime &&
+        form.scheduleDuration > 0 &&
+        contractEndDate &&
+        form.contractStartDate
+      ) {
+        const scheduleGroupId = crypto.randomUUID()
+        const builtLessons = buildRecurringLessons({
+          teacherId:       user.id,
+          studentId:       student.id,
+          instrument:      form.instrument,
+          days:            form.scheduleDays,
+          time:            form.scheduleTime,
+          duration:        form.scheduleDuration,
+          startDate:       form.contractStartDate,   // ← real start, not today
+          endDate:         contractEndDate,
+          scheduleGroupId,
+        })
+        lessonsCreated = builtLessons.length
+        createMany(builtLessons)
+      }
+
+      addNotification('student_created', `Aluno "${form.name.trim()}" cadastrado com sucesso.`, student.id)
+      refreshSubscription()
+      setModalOpen(false)
+
+      // 4. Show success modal
+      setSuccessInfo({
+        studentName:     form.name.trim(),
+        email:           form.createPortal ? form.email.trim() : '',
+        password:        form.createPortal ? form.password : '',
+        lessonsCreated,
+        contractEndDate,
+        contractStartDate: form.contractStartDate,
+        portalUrl:       `${typeof window !== 'undefined' ? window.location.origin : ''}/student-login`,
+        accountError,
+      })
     } finally {
       setSaving(false)
     }
@@ -862,29 +954,58 @@ export default function StudentsPage() {
       {successInfo && (
         <Modal isOpen={!!successInfo} onClose={() => setSuccessInfo(null)} title="Aluno cadastrado!" size="md">
           <div className="space-y-4">
+            {/* Header */}
             <div className="flex items-center gap-3 rounded-xl bg-green-50 border border-green-200 p-4">
               <CheckCircle2 className="h-6 w-6 flex-shrink-0 text-green-600" />
               <div>
                 <p className="font-semibold text-gray-900">{successInfo.studentName}</p>
-                <p className="text-sm text-gray-500">Aluno cadastrado com sucesso</p>
+                <p className="text-sm text-gray-500">Cadastrado com sucesso</p>
               </div>
             </div>
+
+            {/* Account error (non-fatal) */}
+            {successInfo.accountError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+                <p className="text-xs text-red-700">
+                  <span className="font-semibold">Atenção:</span> {successInfo.accountError}
+                </p>
+              </div>
+            )}
 
             {/* Portal credentials */}
             {successInfo.email && successInfo.password && (
               <div className="rounded-xl border border-[#b0d2ff]/50 bg-[#eef5ff] p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4 text-[#1a7cfa]" />
-                  <span className="text-sm font-semibold text-[#1057b0]">Credenciais de acesso ao portal</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <KeyRound className="h-4 w-4 text-[#1a7cfa]" />
+                    <span className="text-sm font-semibold text-[#1057b0]">Acesso ao Portal do Aluno</span>
+                  </div>
+                  {/* Copy all button */}
+                  <button
+                    onClick={async () => {
+                      const text = `Acesso ao Portal Musly\nLogin: ${successInfo.email}\nSenha: ${successInfo.password}\nLink: ${successInfo.portalUrl}`
+                      await navigator.clipboard.writeText(text)
+                      setCopied('all')
+                      setTimeout(() => setCopied(null), 2500)
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg border border-[#b0d2ff] bg-white px-2.5 py-1 text-xs font-medium text-[#1a7cfa] hover:bg-blue-50 transition-colors"
+                  >
+                    {copied === 'all'
+                      ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Copiado!</>
+                      : <><Copy className="h-3.5 w-3.5" /> Compartilhar acesso</>
+                    }
+                  </button>
                 </div>
+
                 <p className="text-xs text-[#1057b0]/70">
-                  Compartilhe essas credenciais com o aluno. O link de acesso é:{' '}
-                  <a href={successInfo.portalUrl} target="_blank" rel="noopener noreferrer" className="underline">
+                  Link:{' '}
+                  <a href={successInfo.portalUrl} target="_blank" rel="noopener noreferrer" className="underline font-medium">
                     {successInfo.portalUrl}
                   </a>
                 </p>
+
                 {[
-                  { label: 'E-mail', value: successInfo.email, key: 'email' as const },
+                  { label: 'Login', value: successInfo.email,    key: 'email'    as const },
                   { label: 'Senha', value: successInfo.password, key: 'password' as const },
                 ].map(({ label, value, key }) => (
                   <div key={key} className="flex items-center gap-2 rounded-lg bg-white border border-[#b0d2ff]/40 px-3 py-2">
@@ -917,7 +1038,10 @@ export default function StudentsPage() {
                     {successInfo.lessonsCreated} aula{successInfo.lessonsCreated !== 1 ? 's' : ''} gerada{successInfo.lessonsCreated !== 1 ? 's' : ''} automaticamente
                   </p>
                   <p className="text-xs text-gray-500">
-                    Contrato válido até {new Date(successInfo.contractEndDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    {successInfo.contractStartDate && (
+                      <>De {new Date(successInfo.contractStartDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long' })} até{' '}</>
+                    )}
+                    {successInfo.contractEndDate && new Date(successInfo.contractEndDate + 'T00:00:00').toLocaleDateString('pt-BR', { day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>
                 </div>
               </div>

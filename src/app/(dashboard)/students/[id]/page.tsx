@@ -8,7 +8,7 @@ import {
   BookOpen, Clock, ChevronDown, Tag, StickyNote, TrendingUp, List,
   Sparkles, ChevronRight as ChevronRightIcon, Save, RefreshCw,
   CreditCard, DollarSign, Calendar, FileDown, Lightbulb, PlayCircle, FolderOpen,
-  ClipboardList, AlertCircle,
+  ClipboardList, AlertCircle, KeyRound, Eye, EyeOff, Copy, CheckCircle2,
 } from 'lucide-react'
 import { FilesTab } from '@/components/ui/FilesTab'
 import { useStudentProfile } from '@/hooks/useStudentProfile'
@@ -231,7 +231,54 @@ function EditableTextarea({ value, onSave, placeholder, rows = 3 }: EditableText
 
 function TabOverview({ profile }: { profile: ReturnType<typeof useStudentProfile> }) {
   const { student, updateStudent, financial, payments, addPayment } = profile
+  const { user } = useAuth()
   if (!student) return null
+
+  // ── Portal access state ───────────────────────────────────────────────────
+  const [portalOpen, setPortalOpen]       = useState(false)
+  const [portalEmail, setPortalEmail]     = useState('')
+  const [portalPass, setPortalPass]       = useState('')
+  const [showPortalPass, setShowPortalPass] = useState(false)
+  const [portalSaving, setPortalSaving]   = useState(false)
+  const [portalError, setPortalError]     = useState('')
+  const [portalDone, setPortalDone]       = useState(false)
+  const [portalCopied, setPortalCopied]   = useState<'all'|null>(null)
+  const portalUrl = typeof window !== 'undefined' ? `${window.location.origin}/student-login` : ''
+
+  async function handleCreatePortal() {
+    setPortalError('')
+    if (!portalEmail.trim()) { setPortalError('Informe o e-mail de acesso.'); return }
+    if (!/\S+@\S+\.\S+/.test(portalEmail)) { setPortalError('E-mail inválido.'); return }
+    if (!portalPass)                        { setPortalError('Informe uma senha.'); return }
+    if (portalPass.length < 6)              { setPortalError('Senha deve ter pelo menos 6 caracteres.'); return }
+    if (!user || !student) return
+    setPortalSaving(true)
+    try {
+      const nameParts = student.name.split(' ')
+      const res = await fetch('/api/admin/create-student', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:           portalEmail.trim(),
+          password:        portalPass,
+          firstName:       nameParts[0] ?? student.name,
+          lastName:        nameParts.slice(1).join(' ') || '',
+          linkedStudentId: student.id,
+          teacherId:       user.id,
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        setPortalError(body.error ?? 'Erro ao criar acesso.')
+        return
+      }
+      // Persist email on student record so the UI reflects the change
+      updateStudent({ email: portalEmail.trim() })
+      setPortalDone(true)
+    } finally {
+      setPortalSaving(false)
+    }
+  }
 
   // ── Financial status helpers ──────────────────────────────────────────────
   const thisMonth = currentYearMonth()
@@ -335,6 +382,143 @@ function TabOverview({ profile }: { profile: ReturnType<typeof useStudentProfile
           )}
         </dl>
       </div>
+
+      {/* Portal access card */}
+      <div className="rounded-2xl border border-gray-100 bg-white p-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-4 w-4 text-gray-400" />
+            <h3 className="text-sm font-semibold text-gray-900">Portal do Aluno</h3>
+          </div>
+          {student.email ? (
+            <span className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">
+              Acesso ativo
+            </span>
+          ) : (
+            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-500">
+              Sem acesso
+            </span>
+          )}
+        </div>
+
+        {student.email ? (
+          <div className="mt-3 flex items-center gap-1.5 text-sm text-gray-600">
+            <Mail className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+            <span className="truncate">{student.email}</span>
+          </div>
+        ) : (
+          <div className="mt-3">
+            <p className="text-xs text-gray-400 mb-3">
+              Este aluno ainda não tem acesso ao portal. Crie as credenciais para ele acessar o histórico de aulas, materiais e tarefas.
+            </p>
+            <button
+              onClick={() => {
+                setPortalEmail('')
+                setPortalPass('')
+                setPortalError('')
+                setPortalDone(false)
+                setPortalOpen(true)
+              }}
+              className="flex items-center gap-1.5 rounded-xl bg-[#1a7cfa] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#1468d6] transition-colors"
+            >
+              <KeyRound className="h-3.5 w-3.5" /> Criar acesso ao portal
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Portal creation modal */}
+      <Modal isOpen={portalOpen} onClose={() => setPortalOpen(false)} title="Criar acesso ao Portal" size="sm">
+        {portalDone ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 rounded-xl bg-green-50 border border-green-200 p-4">
+              <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Acesso criado!</p>
+                <p className="text-xs text-gray-500">{portalEmail}</p>
+              </div>
+            </div>
+            <div className="rounded-xl border border-[#b0d2ff]/50 bg-[#eef5ff] p-3 space-y-2">
+              <p className="text-xs text-[#1057b0]/70">Link: <span className="font-medium">{portalUrl}</span></p>
+              {[{label:'Login', v: portalEmail},{label:'Senha', v: portalPass}].map(({label, v}) => (
+                <div key={label} className="flex items-center gap-2 rounded-lg bg-white border border-[#b0d2ff]/30 px-3 py-1.5">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</p>
+                    <p className="text-sm font-medium text-gray-900 truncate">{v}</p>
+                  </div>
+                </div>
+              ))}
+              <button
+                onClick={async () => {
+                  const text = `Acesso ao Portal Musly\nLogin: ${portalEmail}\nSenha: ${portalPass}\nLink: ${portalUrl}`
+                  await navigator.clipboard.writeText(text)
+                  setPortalCopied('all')
+                  setTimeout(() => setPortalCopied(null), 2500)
+                }}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#b0d2ff] bg-white px-3 py-2 text-xs font-semibold text-[#1a7cfa] hover:bg-blue-50 transition-colors"
+              >
+                {portalCopied === 'all'
+                  ? <><CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Copiado!</>
+                  : <><Copy className="h-3.5 w-3.5" /> Compartilhar acesso com o aluno</>}
+              </button>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={() => setPortalOpen(false)}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Fechar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">
+              Defina as credenciais de acesso para <strong>{student.name}</strong>.
+            </p>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-gray-600">Identificador de acesso (e-mail) *</label>
+              <input
+                type="email"
+                placeholder="nome@musly.com"
+                value={portalEmail}
+                onChange={(e) => setPortalEmail(e.target.value)}
+                className="block w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-gray-600">Senha *</label>
+              <div className="relative">
+                <input
+                  type={showPortalPass ? 'text' : 'password'}
+                  placeholder="Mín. 6 caracteres"
+                  value={portalPass}
+                  onChange={(e) => setPortalPass(e.target.value)}
+                  className="block w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 pr-10 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <button type="button" onClick={() => setShowPortalPass((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  {showPortalPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+            {portalError && (
+              <p className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-600">{portalError}</p>
+            )}
+            <div className="flex justify-end gap-3 border-t border-gray-100 pt-4">
+              <button onClick={() => setPortalOpen(false)}
+                className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">
+                Cancelar
+              </button>
+              <button
+                onClick={handleCreatePortal}
+                disabled={portalSaving}
+                className="flex items-center gap-2 rounded-xl bg-[#1a7cfa] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1468d6] disabled:opacity-60 transition-colors"
+              >
+                {portalSaving ? 'Criando…' : 'Criar acesso'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Financial status mini-card */}
       {financial && (
@@ -516,18 +700,26 @@ function TabHistory({ profile }: { profile: ReturnType<typeof useStudentProfile>
   const [editingNotes, setEditingNotes] = useState<string | null>(null)
   const [notesDraft, setNotesDraft] = useState('')
 
-  if (lessons.length === 0) {
+  // History = past lessons OR lessons with a non-agendada status.
+  // Future agendada lessons belong to the agenda, not the history.
+  const today = new Date().toISOString().split('T')[0]
+  const historyLessons = lessons.filter(
+    (l) => l.date < today || l.status !== 'agendada'
+  )
+
+  if (historyLessons.length === 0) {
     return (
       <div className="rounded-2xl border border-gray-100 bg-white py-12 text-center">
         <BookOpen className="mx-auto h-8 w-8 text-gray-300" />
-        <p className="mt-2 text-sm text-gray-400">Nenhuma aula registrada ainda.</p>
+        <p className="mt-2 text-sm text-gray-400">Nenhuma aula no histórico ainda.</p>
+        <p className="mt-1 text-xs text-gray-400">Aulas futuras aparecem na agenda.</p>
       </div>
     )
   }
 
-  // Group by date
+  // Group by date (only history lessons)
   const groups: Record<string, typeof lessons> = {}
-  for (const lesson of lessons) {
+  for (const lesson of historyLessons) {
     if (!groups[lesson.date]) groups[lesson.date] = []
     groups[lesson.date].push(lesson)
   }
