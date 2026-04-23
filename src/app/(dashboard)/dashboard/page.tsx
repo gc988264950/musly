@@ -22,6 +22,7 @@ import {
 import { cn, getInitials } from '@/lib/utils'
 import { PLANS }         from '@/lib/plans'
 import type { LessonStatus } from '@/lib/db/types'
+import { ActiveLessonBanner } from '@/components/dashboard/ActiveLessonBanner'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -141,6 +142,11 @@ export default function DashboardPage() {
   // ────────────────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 sm:p-6 lg:p-8 animate-in">
+      {/* Active lesson banner — shown when a lesson is currently in progress */}
+      <div className="mb-6">
+        <ActiveLessonBanner />
+      </div>
+
       {/* Header */}
       <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>

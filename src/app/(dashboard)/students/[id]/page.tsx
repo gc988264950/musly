@@ -700,19 +700,20 @@ function TabHistory({ profile }: { profile: ReturnType<typeof useStudentProfile>
   const [editingNotes, setEditingNotes] = useState<string | null>(null)
   const [notesDraft, setNotesDraft] = useState('')
 
-  // History = past lessons OR lessons with a non-agendada status.
-  // Future agendada lessons belong to the agenda, not the history.
-  const today = new Date().toISOString().split('T')[0]
-  const historyLessons = lessons.filter(
-    (l) => l.date < today || l.status !== 'agendada'
-  )
+  // History = only lessons with an actual outcome: concluída, cancelada, falta.
+  // "agendada" lessons — whether past or future — are NOT history:
+  //   • Future agendada → belongs in the agenda
+  //   • Past agendada   → was scheduled but never marked done (not a historical record)
+  //     This avoids retroactive contract lessons appearing as "Agendada" in the past,
+  //     which would falsely suggest those classes were never given.
+  const historyLessons = lessons.filter((l) => l.status !== 'agendada')
 
   if (historyLessons.length === 0) {
     return (
       <div className="rounded-2xl border border-gray-100 bg-white py-12 text-center">
         <BookOpen className="mx-auto h-8 w-8 text-gray-300" />
         <p className="mt-2 text-sm text-gray-400">Nenhuma aula no histórico ainda.</p>
-        <p className="mt-1 text-xs text-gray-400">Aulas futuras aparecem na agenda.</p>
+        <p className="mt-1 text-xs text-gray-400">O histórico mostra apenas aulas concluídas, canceladas ou com falta.</p>
       </div>
     )
   }

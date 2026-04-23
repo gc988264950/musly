@@ -132,9 +132,10 @@ interface LessonRowProps {
   onStatusChange: (status: LessonStatus) => void
   onReschedule: (date: string, time: string) => void
   allLessons: Lesson[]
+  isActive?: boolean
 }
 
-function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onStatusChange, onReschedule, allLessons }: LessonRowProps) {
+function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onStatusChange, onReschedule, allLessons, isActive }: LessonRowProps) {
   const [statusOpen, setStatusOpen] = useState(false)
   const [rescheduling, setRescheduling] = useState(false)
   const [newDate, setNewDate] = useState(lesson.date)
@@ -246,13 +247,28 @@ function LessonRow({ lesson, studentName, studentMeetLink, onEdit, onDelete, onS
       {/* ── Action row (mobile: always visible; desktop: merged into top row) ── */}
       {lesson.status === 'agendada' && (
         <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-5">
-          <button
-            onClick={() => router.push(`/lesson-mode/${lesson.id}`)}
-            className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
-          >
-            <PlayCircle className="h-3.5 w-3.5" />
-            Iniciar aula
-          </button>
+          {isActive ? (
+            /* This lesson is currently running — show "Em andamento" indicator */
+            <button
+              onClick={() => router.push(`/lesson-mode/${lesson.id}`)}
+              className="flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-green-700"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-200 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
+              </span>
+              Em andamento — Retomar
+            </button>
+          ) : (
+            /* Lesson not yet started — enter lesson screen (pre-start) */
+            <button
+              onClick={() => router.push(`/lesson-mode/${lesson.id}`)}
+              className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              <PlayCircle className="h-3.5 w-3.5" />
+              Entrar na aula
+            </button>
+          )}
           {studentMeetLink && (
             <a
               href={studentMeetLink}
@@ -470,6 +486,24 @@ export default function LessonsPage() {
 
   // Delete
   const [deleteTarget, setDeleteTarget] = useState<Lesson | null>(null)
+
+  // Active lesson (read from localStorage — synced by lesson-mode)
+  const [activeLessonId, setActiveLessonId] = useState<string | null>(null)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('harmoniq_active_lesson')
+      if (!raw) return
+      const info = JSON.parse(raw) as { lessonId: string; startedAt: number }
+      const age = Date.now() - info.startedAt
+      if (age >= 0 && age < 12 * 60 * 60 * 1000) {
+        setActiveLessonId(info.lessonId)
+      } else {
+        localStorage.removeItem('harmoniq_active_lesson')
+      }
+    } catch {
+      localStorage.removeItem('harmoniq_active_lesson')
+    }
+  }, [])
 
   // Student map for lookup
   const studentMap = useMemo(
@@ -717,6 +751,7 @@ export default function LessonsPage() {
                         onStatusChange={(status) => update(lesson.id, { status })}
                         onReschedule={(date, time) => update(lesson.id, { date, time })}
                         allLessons={lessons}
+                        isActive={lesson.id === activeLessonId}
                       />
                     ))}
                   </div>

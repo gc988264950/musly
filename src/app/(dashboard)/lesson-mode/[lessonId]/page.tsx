@@ -7,8 +7,16 @@ import {
   ArrowLeft, Video, Music, Calendar,
   Clock, CheckCircle2, AlertTriangle, TrendingUp, Save,
   Lightbulb, Flag, BookOpen, FileText, Image as ImageIcon,
-  File, Radio, ClipboardList, Send, Plus,
+  File, Radio, ClipboardList, Send, Plus, PlayCircle,
 } from 'lucide-react'
+
+// Max age before a stale timer is auto-cleared (12 hours in ms)
+const STALE_LESSON_MS = 12 * 60 * 60 * 1000
+
+// localStorage keys
+const activeLessonKey = () => 'harmoniq_active_lesson'
+const timerKey = (id: string) => `harmoniq_lesson_start_${id}`
+const notesKey = (id: string) => `harmoniq_session_notes_${id}`
 import { getLessonById, updateLesson, applyUpdate as applyLessonUpdate } from '@/lib/db/lessons'
 import { getStudentById } from '@/lib/db/students'
 import { getLessonPlansByStudent, getLessonPlanByLessonId, getOrCreateLessonPlan, updateLessonPlan, applyUpdate as applyPlanUpdate } from '@/lib/db/lessonPlans'
@@ -106,9 +114,18 @@ export default function LessonModePage() {
 
   // ── Timer ─────────────────────────────────────────────────────────────────
   const [elapsed, setElapsed] = useState(0)
-  const [timerRunning, setTimerRunning] = useState(true)
+  // timerRunning defaults to FALSE — the teacher must click "Iniciar aula" first
+  const [timerRunning, setTimerRunning] = useState(false)
   const [startedAt, setStartedAt] = useState<number | null>(null)
-  const startTimeRef = useRef<number>(Date.now())
+  const startTimeRef = useRef<number>(0)
+
+  // ── Lesson start state ────────────────────────────────────────────────────
+  // false = pre-start screen; true = lesson is running
+  const [lessonStarted, setLessonStarted] = useState(false)
+  // Set when another lesson is already active and blocks starting this one
+  const [blockedBy, setBlockedBy] = useState<{
+    lessonId: string; studentName: string; startedAt: number
+  } | null>(null)
 
   // ── Session state ─────────────────────────────────────────────────────────
   const [notes, setNotes] = useState('')
@@ -183,21 +200,38 @@ export default function LessonModePage() {
       }
 
       // Restore notes from localStorage
-      const savedNotes = localStorage.getItem(`harmoniq_session_notes_${lessonId}`)
+      const savedNotes = localStorage.getItem(notesKey(lessonId))
       setNotes(savedNotes !== null ? savedNotes : (l.notes ?? ''))
 
-      // Timer persistence: restore or create start timestamp
-      const timerKey = `harmoniq_lesson_start_${lessonId}`
-      const savedStart = localStorage.getItem(timerKey)
+      // Timer persistence: restore ONLY if a valid (non-stale) key exists.
+      // If no key → show pre-start screen (teacher must click "Iniciar aula").
+      // If key is stale (> 12 h) → clear it and show pre-start screen.
+      const savedStart = localStorage.getItem(timerKey(lessonId))
       if (savedStart) {
         const ts = parseInt(savedStart, 10)
-        startTimeRef.current = ts
-        setStartedAt(ts)
-      } else {
-        const now = Date.now()
-        startTimeRef.current = now
-        setStartedAt(now)
-        localStorage.setItem(timerKey, String(now))
+        const age = Date.now() - ts
+        if (age >= 0 && age < STALE_LESSON_MS) {
+          // Valid in-progress lesson — restore timer
+          startTimeRef.current = ts
+          setStartedAt(ts)
+          setElapsed(Math.floor(age / 1000))
+          setLessonStarted(true)
+          setTimerRunning(true)
+          // Keep the global active-lesson record in sync
+          if (student) {
+            localStorage.setItem(activeLessonKey(), JSON.stringify({
+              lessonId: l.id,
+              studentName: student.name,
+              studentColor: student.color ?? '#6366f1',
+              startedAt: ts,
+            }))
+          }
+        } else {
+          // Stale timer — clear all related keys
+          console.warn('[LessonMode] Stale timer cleared. Age:', Math.round(age / 60000), 'min')
+          localStorage.removeItem(timerKey(lessonId))
+          localStorage.removeItem(activeLessonKey())
+        }
       }
 
       setLoading(false)
@@ -214,15 +248,16 @@ export default function LessonModePage() {
     return () => clearInterval(id)
   }, [timerRunning, finished])
 
-  // ── Auto-save notes to localStorage ──────────────────────────────────────
+  // ── Auto-save notes to localStorage (only while lesson is running) ────────
   useEffect(() => {
+    if (!lessonStarted) return
     const timer = setTimeout(() => {
-      localStorage.setItem(`harmoniq_session_notes_${lessonId}`, notes)
+      localStorage.setItem(notesKey(lessonId), notes)
       setNoteSaved(true)
       setTimeout(() => setNoteSaved(false), 1500)
     }, 600)
     return () => clearTimeout(timer)
-  }, [notes, lessonId])
+  }, [notes, lessonId, lessonStarted])
 
   // ── Toggle performance tag ─────────────────────────────────────────────────
   const toggleTag = useCallback((tag: string) => {
@@ -230,6 +265,45 @@ export default function LessonModePage() {
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     )
   }, [])
+
+  // ── Start the lesson (teacher clicks "Iniciar aula") ─────────────────────
+  function handleStartLesson() {
+    if (!lesson) return
+
+    // Check if another lesson is already active
+    try {
+      const activeStr = localStorage.getItem(activeLessonKey())
+      if (activeStr) {
+        const active = JSON.parse(activeStr) as { lessonId: string; studentName: string; startedAt: number }
+        if (active.lessonId !== lessonId) {
+          const age = Date.now() - active.startedAt
+          if (age < STALE_LESSON_MS) {
+            // Genuinely active — block this one
+            setBlockedBy(active)
+            return
+          }
+          // Stale active record — clear it and proceed
+          localStorage.removeItem(activeLessonKey())
+          localStorage.removeItem(timerKey(active.lessonId))
+        }
+      }
+    } catch {
+      localStorage.removeItem(activeLessonKey())
+    }
+
+    const now = Date.now()
+    startTimeRef.current = now
+    setStartedAt(now)
+    localStorage.setItem(timerKey(lessonId), String(now))
+    localStorage.setItem(activeLessonKey(), JSON.stringify({
+      lessonId: lesson.id,
+      studentName,
+      studentColor,
+      startedAt: now,
+    }))
+    setLessonStarted(true)
+    setTimerRunning(true)
+  }
 
   // ── Save lesson planning blocks ───────────────────────────────────────────
   async function savePlanBlocks() {
@@ -284,8 +358,9 @@ export default function LessonModePage() {
     })
     setLesson(updated)
     updateLesson(updated).catch(() => {/* lesson may have been deleted */})
-    localStorage.removeItem(`harmoniq_session_notes_${lessonId}`)
-    localStorage.removeItem(`harmoniq_lesson_start_${lessonId}`)
+    localStorage.removeItem(notesKey(lessonId))
+    localStorage.removeItem(timerKey(lessonId))
+    localStorage.removeItem(activeLessonKey())
     setFeedback(buildFeedback(performanceTags, notes))
     setHomeworkSent(!!homework.trim())
     setShowHomework(false)
@@ -397,6 +472,103 @@ export default function LessonModePage() {
               </Link>
             </div>
           </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Pre-start screen (teacher hasn't clicked "Iniciar aula" yet) ──────────
+  if (!lessonStarted && !finished) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 animate-in">
+        <div className="mx-auto max-w-lg space-y-4">
+          {/* Back */}
+          <button
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Voltar
+          </button>
+
+          {/* Lesson info card */}
+          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-card">
+            <div className="flex items-center gap-4 mb-5">
+              <div
+                className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full text-base font-bold text-white"
+                style={{ backgroundColor: studentColor }}
+              >
+                {getInitials(studentName)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-lg font-bold text-gray-900">{studentName}</h2>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                  <span className="flex items-center gap-1">
+                    <Music className="h-3.5 w-3.5" /> {studentInstrument}
+                  </span>
+                  <span className="text-gray-300">·</span>
+                  <span className="flex items-center gap-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    <span className="capitalize">{formatDate(lesson.date)}</span>
+                  </span>
+                  <span className="text-gray-300">·</span>
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3.5 w-3.5" /> {formatTime(lesson.time)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Meet link */}
+            {studentMeetLink ? (
+              <a
+                href={studentMeetLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-green-700"
+              >
+                <Video className="h-4 w-4" />
+                Entrar no Google Meet
+              </a>
+            ) : (
+              <div className="flex items-center gap-2 rounded-xl bg-gray-50 px-4 py-2.5 text-sm text-gray-400">
+                <Video className="h-4 w-4 flex-shrink-0" />
+                Nenhum link do Google Meet cadastrado.
+              </div>
+            )}
+          </div>
+
+          {/* Blocked by another active lesson */}
+          {blockedBy && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-semibold text-amber-800">Aula em andamento</p>
+                  <p className="mt-1 text-sm text-amber-700 leading-relaxed">
+                    Você já possui uma aula em andamento com <strong>{blockedBy.studentName}</strong>.
+                    Finalize a aula atual para iniciar outra.
+                  </p>
+                  <button
+                    onClick={() => router.push(`/lesson-mode/${blockedBy.lessonId}`)}
+                    className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-amber-700 transition-colors"
+                  >
+                    Retomar aula em andamento
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Start button */}
+          {!blockedBy && (
+            <button
+              onClick={handleStartLesson}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#1a7cfa] hover:bg-[#1468d6] py-4 text-base font-bold text-white shadow-brand transition-colors"
+            >
+              <PlayCircle className="h-5 w-5" />
+              Iniciar aula
+            </button>
+          )}
         </div>
       </div>
     )
