@@ -304,52 +304,39 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_cakto_order_id
 -- =============================================================================
 -- Storage bucket RLS  (Supabase Storage)
 -- =============================================================================
--- Run via Dashboard → Storage → student-files bucket → Policies,
--- OR via this SQL if your Supabase project supports storage policies in SQL.
+-- Supabase Storage does NOT use a "storage.policies" table.
+-- Policies for file objects are standard PostgreSQL RLS policies on the
+-- built-in table storage.objects, filtered by bucket_id.
 --
--- Bucket name: student-files
--- Path format: {teacherId}/{fileId}
---
--- Teachers upload/download/delete their own files (path starts with their UID).
--- Students download only — the API verifies visible_to_student before serving.
+-- Bucket name : student-files
+-- Path format : {teacherId}/{fileId}
+-- Rule        : teachers access only their own folder (first path segment = uid)
+-- =============================================================================
 
--- Allow teachers to upload to their own folder
-INSERT INTO storage.policies (name, bucket_id, operation, definition)
-VALUES (
-  'teacher_upload_own_files',
-  'student-files',
-  'INSERT',
-  '(auth.uid()::text = (storage.foldername(name))[1])'
-)
-ON CONFLICT (name, bucket_id) DO NOTHING;
+DROP POLICY IF EXISTS teacher_upload_own_files ON storage.objects;
+DROP POLICY IF EXISTS teacher_read_own_files   ON storage.objects;
+DROP POLICY IF EXISTS teacher_delete_own_files ON storage.objects;
 
--- Allow teachers to read their own files
-INSERT INTO storage.policies (name, bucket_id, operation, definition)
-VALUES (
-  'teacher_read_own_files',
-  'student-files',
-  'SELECT',
-  '(auth.uid()::text = (storage.foldername(name))[1])'
-)
-ON CONFLICT (name, bucket_id) DO NOTHING;
+-- Teachers: upload into their own folder
+CREATE POLICY teacher_upload_own_files ON storage.objects
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'student-files'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
 
--- Allow teachers to delete their own files
-INSERT INTO storage.policies (name, bucket_id, operation, definition)
-VALUES (
-  'teacher_delete_own_files',
-  'student-files',
-  'DELETE',
-  '(auth.uid()::text = (storage.foldername(name))[1])'
-)
-ON CONFLICT (name, bucket_id) DO NOTHING;
+-- Teachers: read files in their own folder
+CREATE POLICY teacher_read_own_files ON storage.objects
+  FOR SELECT TO authenticated
+  USING (
+    bucket_id = 'student-files'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
 
--- NOTE: Student file downloads go through the app (getFileBlob()),
--- which uses the teacher's session (the student portal calls via the teacher's
--- bucket path). If you want direct student download, add a separate policy:
---   (storage.foldername(name))[1] IN (
---     SELECT teacher_id::text FROM student_files sf
---     JOIN students s ON s.id = sf.student_id
---     WHERE s.id = (auth.jwt() -> 'user_metadata' ->> 'linkedStudentId')::uuid
---       AND sf.visible_to_student = true
---   )
--- For now this is deferred — downloads are proxied through the teacher session.
+-- Teachers: delete files in their own folder
+CREATE POLICY teacher_delete_own_files ON storage.objects
+  FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'student-files'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
