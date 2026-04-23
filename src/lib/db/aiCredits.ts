@@ -1,55 +1,13 @@
 import { createClient } from '@/lib/supabase/client'
-import { PLANS }        from '@/lib/plans'
 import type { PlanId }  from '@/lib/db/types'
+import { PLAN_CREDITS as _PLAN_CREDITS } from '@/lib/ai/creditTiers'
 
-// ─── Credit budget per plan ───────────────────────────────────────────────────
+// Re-export shared helpers so existing imports keep working
+export { PLAN_CREDITS, classifyPrompt, TIER_LABELS } from '@/lib/ai/creditTiers'
+export type { CreditTier } from '@/lib/ai/creditTiers'
 
-export const PLAN_CREDITS: Record<PlanId, number> = {
-  free:   10,
-  pro:    100,
-  studio: 300,
-}
-
-// ─── Credit cost per action tier ─────────────────────────────────────────────
-
-/** 1 = simple data lookup, 2 = generation/analysis, 3 = full plan/deep analysis */
-export type CreditTier = 1 | 2 | 3
-
-export const TIER_LABELS: Record<CreditTier, string> = {
-  1: 'Consulta simples',
-  2: 'Geração inteligente',
-  3: 'Planejamento avançado',
-}
-
-// ─── Classify a user prompt into a credit tier ────────────────────────────────
-
-export function classifyPrompt(prompt: string): CreditTier {
-  const p = prompt.toLowerCase().trim()
-
-  // Advanced (3 credits): full plans, complete lessons, deep history analysis
-  const advanced = [
-    'plano de aula', 'planejamento completo', 'planejamento mensal',
-    'gerar aula completa', 'criar aula completa', 'criar aula',
-    'analisar evolução', 'analisar histórico', 'analisar historico',
-    'gerar planejamento', 'análise completa', 'analise completa',
-    'semestre', 'módulo completo',
-  ]
-  if (advanced.some((kw) => p.includes(kw))) return 3
-
-  // Medium (2 credits): exercises, task suggestions, student analysis
-  const medium = [
-    'exercício', 'exercicio', 'gerar exerc', 'sugerir exerc',
-    'analisar aluno', 'analisar o aluno', 'análise do aluno',
-    'sugerir', 'sugira', 'o que trabalhar', 'o que ensinar',
-    'tarefa', 'dever de casa', 'recomendar', 'recomende',
-    'ideia de aula', 'ideia para aula',
-    'monte a', 'me ajude a montar',
-  ]
-  if (medium.some((kw) => p.includes(kw))) return 2
-
-  // Simple (1 credit): all data-lookup queries
-  return 1
-}
+// Local alias used by getCreditSummary and consumeCredits below
+const PLAN_CREDITS = _PLAN_CREDITS
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,7 +68,7 @@ export async function getCreditSummary(userId: string, planId: PlanId): Promise<
 
   const used  = data?.credits_used  ?? 0
   const extra = data?.extra_credits ?? 0
-  const total = PLAN_CREDITS[planId] ?? PLANS[planId]?.limits.aiCreditsPerMonth ?? 10
+  const total = PLAN_CREDITS[planId] ?? 10
 
   return {
     used,

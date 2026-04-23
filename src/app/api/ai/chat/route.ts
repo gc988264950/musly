@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { checkRateLimit, AI_CHAT_LIMIT } from '@/lib/rateLimit'
+import { classifyPrompt, PLAN_CREDITS }  from '@/lib/ai/creditTiers'
+import type { PlanId } from '@/lib/db/types'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,12 +22,12 @@ interface StudentWithHistory {
 }
 
 interface LessonSummary {
-  date:       string
-  time:       string
-  duration:   number
-  status:     string
-  instrument: string
-  topic?:     string
+  date:        string
+  time:        string
+  duration:    number
+  status:      string
+  instrument:  string
+  topic?:      string
   studentName: string
 }
 
@@ -48,10 +50,16 @@ interface ChatRequestBody {
 // Maximum characters accepted in a single user message
 const MAX_MESSAGE_LENGTH = 2000
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function currentMonth(): string {
+  const n = new Date()
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
+}
+
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 function buildSystemPrompt(ctx: ChatRequestBody['context']): string {
-  // Per-student section with full lesson history
   const studentDetails = ctx.students.length > 0
     ? ctx.students.map((s) => {
         const header = `**${s.name}** (${s.instrument}${s.level ? `, ${s.level}` : ''}${s.needsAttention ? ', ⚠️ precisa de atenção' : ''})`
@@ -127,9 +135,7 @@ ${paymentList}
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // ── Auth check — only authenticated teachers may call the AI ────────────────
-  // Students do not have AI access; unauthenticated callers are rejected.
-  // This prevents arbitrary callers from running up the OpenAI bill.
+  // ── 1. Auth: only authenticated teachers ─────────────────────────────────
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -140,7 +146,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Acesso negado.' }, { status: 403 })
   }
 
-  // ── Rate limiting: 10 requests / 60 s per user ───────────────────────────
+  // ── 2. Rate limit: 10 req / 60 s per user ────────────────────────────────
   const rl = checkRateLimit(user.id, AI_CHAT_LIMIT)
   if (!rl.allowed) {
     const retryAfterSec = Math.ceil((rl.resetAt - Date.now()) / 1000)
@@ -149,26 +155,16 @@ export async function POST(req: NextRequest) {
       {
         status:  429,
         headers: {
-          'Retry-After':          String(retryAfterSec),
-          'X-RateLimit-Limit':    String(AI_CHAT_LIMIT.maxRequests),
+          'Retry-After':           String(retryAfterSec),
+          'X-RateLimit-Limit':     String(AI_CHAT_LIMIT.maxRequests),
           'X-RateLimit-Remaining': '0',
-          'X-RateLimit-Reset':    String(Math.ceil(rl.resetAt / 1000)),
+          'X-RateLimit-Reset':     String(Math.ceil(rl.resetAt / 1000)),
         },
       },
     )
   }
 
-  // Check API key before doing any heavy work
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    // Don't expose the variable name in the response — log server-side only
-    console.error('[AI Chat] OPENAI_API_KEY is not set.')
-    return NextResponse.json(
-      { error: 'Serviço de IA temporariamente indisponível.' },
-      { status: 503 }
-    )
-  }
-
+  // ── 3. Parse and validate request body ───────────────────────────────────
   let body: ChatRequestBody
   try {
     body = await req.json()
@@ -181,16 +177,68 @@ export async function POST(req: NextRequest) {
   if (!message?.trim()) {
     return NextResponse.json({ error: 'Mensagem vazia.' }, { status: 400 })
   }
-
-  // Enforce message length limit to prevent prompt injection / cost abuse
   if (message.length > MAX_MESSAGE_LENGTH) {
     return NextResponse.json(
       { error: `Mensagem muito longa. Máximo ${MAX_MESSAGE_LENGTH} caracteres.` },
-      { status: 400 }
+      { status: 400 },
     )
   }
 
+  // ── 4. Load user's plan from the database ─────────────────────────────────
+  // RLS guarantees the user can only read their own subscription row.
+  const { data: sub } = await supabase
+    .from('subscriptions')
+    .select('plan_id')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  const planId = ((sub?.plan_id ?? 'free') as PlanId)
+  const totalMonthly = PLAN_CREDITS[planId] ?? 10
+
+  // ── 5. Load current credit state from the database ────────────────────────
+  const month = currentMonth()
+  const { data: usage } = await supabase
+    .from('ai_credit_usage')
+    .select('credits_used, extra_credits')
+    .eq('user_id', user.id)
+    .eq('month', month)
+    .maybeSingle()
+
+  const creditsUsedNow   = usage?.credits_used  ?? 0
+  const extraCreditsNow  = usage?.extra_credits ?? 0
+  const monthlyRemaining = Math.max(0, totalMonthly - creditsUsedNow)
+  const totalAvailable   = monthlyRemaining + extraCreditsNow
+
+  // ── 6. Classify the prompt and determine cost (server-authoritative) ──────
+  // The client never decides or reports the cost — this is always computed
+  // server-side from the raw message text.
+  const cost = classifyPrompt(message)
+
+  // ── 7. Reject if insufficient credits ────────────────────────────────────
+  if (totalAvailable < cost) {
+    return NextResponse.json(
+      {
+        error: 'Créditos insuficientes. Recarregue seus créditos para continuar usando a IA.',
+        code:  'insufficient_credits',
+        creditsRemaining: totalAvailable,
+      },
+      { status: 402 },
+    )
+  }
+
+  // ── 8. Verify OpenAI key before incurring any cost ────────────────────────
+  const apiKey = process.env.OPENAI_API_KEY
+  if (!apiKey) {
+    console.error('[AI Chat] OPENAI_API_KEY is not set.')
+    return NextResponse.json(
+      { error: 'Serviço de IA temporariamente indisponível.' },
+      { status: 503 },
+    )
+  }
+
+  // ── 9. Call OpenAI ─────────────────────────────────────────────────────────
   const openai = new OpenAI({ apiKey })
+  let aiText: string
 
   try {
     const completion = await openai.chat.completions.create({
@@ -202,14 +250,10 @@ export async function POST(req: NextRequest) {
       max_tokens:  800,
       temperature: 0.7,
     })
-
-    const text = completion.choices[0]?.message?.content ?? 'Não consegui gerar uma resposta. Tente novamente.'
-
-    return NextResponse.json({ text })
+    aiText = completion.choices[0]?.message?.content
+      ?? 'Não consegui gerar uma resposta. Tente novamente.'
   } catch (err: unknown) {
-    // Log the real error server-side; return generic messages to the client
-    console.error('[AI Chat Route]', err)
-
+    console.error('[AI Chat Route] OpenAI error:', err)
     const errMsg = err instanceof Error ? err.message : ''
     if (errMsg.includes('API key') || errMsg.includes('Incorrect API key')) {
       return NextResponse.json({ error: 'Configuração de IA inválida. Contate o suporte.' }, { status: 503 })
@@ -217,7 +261,52 @@ export async function POST(req: NextRequest) {
     if (errMsg.includes('quota') || errMsg.includes('billing') || errMsg.includes('insufficient_quota')) {
       return NextResponse.json({ error: 'Limite de uso da IA atingido. Tente novamente mais tarde.' }, { status: 429 })
     }
-
     return NextResponse.json({ error: 'Erro ao se comunicar com a IA. Tente novamente.' }, { status: 500 })
   }
+
+  // ── 10. Deduct credits server-side (client cannot influence this) ──────────
+  // Monthly credits are consumed first; extra (purchased) credits are used only
+  // after the monthly allowance is exhausted.
+  let newUsed  = creditsUsedNow
+  let newExtra = extraCreditsNow
+
+  if (cost <= monthlyRemaining) {
+    newUsed = creditsUsedNow + cost
+  } else {
+    const fromExtra = cost - monthlyRemaining
+    newUsed  = totalMonthly
+    newExtra = Math.max(0, extraCreditsNow - fromExtra)
+  }
+
+  if (usage) {
+    await supabase
+      .from('ai_credit_usage')
+      .update({ credits_used: newUsed, extra_credits: newExtra, updated_at: new Date().toISOString() })
+      .eq('user_id', user.id)
+      .eq('month', month)
+  } else {
+    await supabase
+      .from('ai_credit_usage')
+      .insert({ user_id: user.id, month, credits_used: newUsed, extra_credits: newExtra })
+  }
+
+  // Append an audit entry (fire-and-forget — non-fatal if it fails)
+  void supabase.from('credit_transactions').insert({
+    user_id:     user.id,
+    type:        'extra_usage',
+    amount:      -cost,
+    description: `Uso de ${cost} crédito(s) de IA`,
+  })
+
+  // ── 11. Return response with authoritative credit info ─────────────────────
+  // The client uses creditsRemaining and creditsUsed to update its local
+  // display — it never computes or reports these values itself.
+  const newMonthlyRemaining = Math.max(0, totalMonthly - newUsed)
+  const creditsRemaining    = newMonthlyRemaining + newExtra
+
+  return NextResponse.json({
+    text:             aiText,
+    creditsUsed:      cost,
+    creditsRemaining,
+  })
 }

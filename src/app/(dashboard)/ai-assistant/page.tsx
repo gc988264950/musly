@@ -13,7 +13,7 @@ import { getLessons, todayISO } from '@/lib/db/lessons'
 import { getStudents }      from '@/lib/db/students'
 import { getAllPayments }   from '@/lib/db/payments'
 import { getAllFinancial }  from '@/lib/db/financial'
-import { consumeCredits, type AICreditSummary } from '@/lib/db/aiCredits'
+import type { AICreditSummary } from '@/lib/db/aiCredits'
 import CreditModal          from '@/components/ui/CreditModal'
 import { cn }               from '@/lib/utils'
 import type { Lesson, Student, Payment, StudentFinancial } from '@/lib/db/types'
@@ -33,14 +33,18 @@ interface SystemContext {
 
 /**
  * Calls the server-side OpenAI route.
- * Falls back to the local rule-based engine if:
- *  - OPENAI_API_KEY is not configured (500 with specific message)
- *  - Any network / API error occurs
+ * The server performs auth, credit check, OpenAI call, and credit deduction.
+ * The returned `creditsUsed` and `creditsRemaining` are authoritative —
+ * the client must NOT compute or apply its own credit deduction.
+ *
+ * Falls back to the local rule-based engine only when:
+ *  - OPENAI_API_KEY is not set (503)
+ *  - Network/API error that is not credit-related
  */
 async function callAI(
   message: string,
   ctx: SystemContext
-): Promise<{ text: string; fromFallback: boolean }> {
+): Promise<{ text: string; fromFallback: boolean; creditsUsed?: number; creditsRemaining?: number }> {
   const today = ctx.today
 
   // Build per-student context with recent lesson history
@@ -116,16 +120,27 @@ async function callAI(
     const data = await res.json()
 
     if (!res.ok) {
-      if (res.status === 500 && data.error?.includes('OPENAI_API_KEY')) {
+      // 503: API key not set — use local fallback so the page stays usable
+      if (res.status === 503) {
         return { text: generateAIResponse(message, ctx), fromFallback: true }
       }
+      // 402: server confirmed insufficient credits — show the server message
+      // Other errors: surface server message without triggering fallback
       return {
         text: `⚠️ ${data.error ?? 'Erro ao se comunicar com a IA. Tente novamente.'}`,
         fromFallback: false,
+        // creditsRemaining from server keeps the UI in sync after a 402
+        creditsRemaining: typeof data.creditsRemaining === 'number' ? data.creditsRemaining : undefined,
       }
     }
 
-    return { text: data.text, fromFallback: false }
+    // Happy path: server deducted credits and returned authoritative counts
+    return {
+      text:             data.text,
+      fromFallback:     false,
+      creditsUsed:      data.creditsUsed      as number | undefined,
+      creditsRemaining: data.creditsRemaining as number | undefined,
+    }
   } catch {
     return { text: generateAIResponse(message, ctx), fromFallback: true }
   }
@@ -443,22 +458,21 @@ export default function AIAssistantPage() {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Send a message (always costs 1 credit) ────────────────────────────────
+  // ── Send a message ────────────────────────────────────────────────────────
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim()
     if (!trimmed || loading || !ctx) return
 
-    const cost = 1
-
-    // Check credits
-    if (credits && credits.totalAvailable < cost) {
+    // Local pre-check for UX only (avoids a round-trip when we already know
+    // credits are at zero). The server enforces this authoritatively regardless.
+    if (credits && credits.totalAvailable === 0) {
       setMessages((prev) => [
         ...prev,
         { role: 'user', text: trimmed, ts: Date.now() },
         {
-          role: 'assistant',
-          text: `Você não tem créditos disponíveis.\n\nCompre créditos avulsos ou faça upgrade do seu plano para continuar usando a IA.`,
-          ts: Date.now(),
+          role:    'assistant',
+          text:    'Você não tem créditos disponíveis.\n\nCompre créditos avulsos ou faça upgrade do seu plano para continuar usando a IA.',
+          ts:      Date.now(),
           isError: true,
         },
       ])
@@ -469,26 +483,36 @@ export default function AIAssistantPage() {
     setMessages((prev) => [...prev, { role: 'user', text: trimmed, ts: Date.now() }])
     setLoading(true)
 
-    // Call OpenAI (falls back to local engine if key not configured)
-    const { text: response, fromFallback } = await callAI(trimmed, ctx)
+    // The server handles: auth, credit classification, credit check, OpenAI
+    // call, and credit deduction — in that order. We trust only the server's
+    // response for any credit-state update.
+    const { text: response, fromFallback, creditsUsed, creditsRemaining } = await callAI(trimmed, ctx)
 
-    // Only deduct credits when response is not an error message
     const isError = response.startsWith('⚠️')
-    if (!isError && user) {
-      consumeCredits(user.id, cost, planId).catch(() => {})
-      // Optimistic local update
+
+    // Update the local credit display using the server-authoritative values.
+    // creditsUsed is defined only on a successful (non-fallback) response.
+    // creditsRemaining is defined on both success and 402, so the display
+    // always reflects the real state after the server has spoken.
+    if (creditsUsed !== undefined && !fromFallback) {
       setCredits((prev) => {
         if (!prev) return prev
-        const monthlyDeduct = Math.min(cost, prev.remaining)
-        const extraDeduct   = cost - monthlyDeduct
+        const monthlyDeduct = Math.min(creditsUsed, prev.remaining)
+        const extraDeduct   = creditsUsed - monthlyDeduct
         return {
           ...prev,
           used:           prev.used + monthlyDeduct,
           remaining:      Math.max(0, prev.remaining - monthlyDeduct),
           extra:          Math.max(0, prev.extra - extraDeduct),
-          totalAvailable: Math.max(0, prev.totalAvailable - cost),
+          totalAvailable: Math.max(0, prev.totalAvailable - creditsUsed),
         }
       })
+    } else if (creditsRemaining !== undefined && !fromFallback) {
+      // 402 path: sync totalAvailable from server so the counter is accurate
+      setCredits((prev) => prev
+        ? { ...prev, totalAvailable: creditsRemaining }
+        : prev
+      )
     }
 
     setMessages((prev) => [
@@ -496,7 +520,7 @@ export default function AIAssistantPage() {
       { role: 'assistant', text: response, ts: Date.now(), isError, fromFallback },
     ])
     setLoading(false)
-  }, [loading, ctx, credits, user]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loading, ctx, credits]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
