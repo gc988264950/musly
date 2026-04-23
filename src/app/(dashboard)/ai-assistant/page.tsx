@@ -37,9 +37,8 @@ interface SystemContext {
  * The returned `creditsUsed` and `creditsRemaining` are authoritative —
  * the client must NOT compute or apply its own credit deduction.
  *
- * Falls back to the local rule-based engine only when:
- *  - OPENAI_API_KEY is not set (503)
- *  - Network/API error that is not credit-related
+ * All errors are surfaced as visible messages — there is intentionally NO
+ * local fallback engine so that production always uses real server credits.
  */
 async function callAI(
   message: string,
@@ -120,16 +119,12 @@ async function callAI(
     const data = await res.json()
 
     if (!res.ok) {
-      // 503: API key not set — use local fallback so the page stays usable
-      if (res.status === 503) {
-        return { text: generateAIResponse(message, ctx), fromFallback: true }
-      }
-      // 402: server confirmed insufficient credits — show the server message
-      // Other errors: surface server message without triggering fallback
+      // All server errors are shown directly — no local fallback.
+      // This ensures the user sees the real problem (e.g. missing API key in prod)
+      // instead of getting free unlimited AI responses from the local engine.
       return {
         text: `⚠️ ${data.error ?? 'Erro ao se comunicar com a IA. Tente novamente.'}`,
         fromFallback: false,
-        // creditsRemaining from server keeps the UI in sync after a 402
         creditsRemaining: typeof data.creditsRemaining === 'number' ? data.creditsRemaining : undefined,
       }
     }
@@ -141,8 +136,13 @@ async function callAI(
       creditsUsed:      data.creditsUsed      as number | undefined,
       creditsRemaining: data.creditsRemaining as number | undefined,
     }
-  } catch {
-    return { text: generateAIResponse(message, ctx), fromFallback: true }
+  } catch (err) {
+    // Network-level error (no response at all) — show a real error, not a fake AI response
+    console.error('[callAI] fetch error:', err)
+    return {
+      text: '⚠️ Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.',
+      fromFallback: false,
+    }
   }
 }
 

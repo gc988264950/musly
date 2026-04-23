@@ -5,6 +5,9 @@ import { checkRateLimit, AI_CHAT_LIMIT } from '@/lib/rateLimit'
 import { classifyPrompt, PLAN_CREDITS }  from '@/lib/ai/creditTiers'
 import type { PlanId } from '@/lib/db/types'
 
+// Never cache this route — each request must hit the server fresh
+export const dynamic = 'force-dynamic'
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface StudentWithHistory {
@@ -135,6 +138,9 @@ ${paymentList}
 // ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  // Visible in Vercel logs — confirms the real server route is being hit
+  console.log('[AI Chat PROD] request received', new Date().toISOString())
+
   // ── 1. Auth: only authenticated teachers ─────────────────────────────────
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
