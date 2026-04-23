@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
+/** Admin-only path */
+const ADMIN_PATH = '/admin'
+
 /** Teacher-only paths */
 const TEACHER_PATHS = [
   '/dashboard',
@@ -62,6 +65,15 @@ export async function middleware(request: NextRequest) {
   // IMPORTANT: getUser() refreshes the session token if needed
   const { data: { user } } = await supabase.auth.getUser()
   const role = (user?.user_metadata?.role ?? 'professor') as 'professor' | 'aluno'
+
+  // ── Admin path protection ────────────────────────────────────────────────────
+  const isAdminPath = pathname === ADMIN_PATH || pathname.startsWith(ADMIN_PATH + '/')
+  if (isAdminPath) {
+    const adminEmail = process.env.ADMIN_EMAIL
+    if (!user || !adminEmail || user.email !== adminEmail) {
+      return NextResponse.redirect(new URL('/', request.url))
+    }
+  }
 
   // ── Unauthenticated → redirect to login ─────────────────────────────────────
   if (isProtected && !user) {
